@@ -101,7 +101,7 @@ def default_config():
         "admin_user": "admin",
         "admin_pass_hash": hashlib.sha256(b"admin").hexdigest(),
         "secret_key": secrets.token_hex(16),
-        "ap_interface": "wlan1",
+        "ap_interface": "wlan0",
         "ap_ssid": "PantherPi",
         "ap_password": "PantherPi123",
         "ap_ip": "10.3.141.1",
@@ -128,10 +128,16 @@ def default_config():
         "eth_lan_dhcp_end": "10.4.1.254",
         "eth_lan_uplink": "",
         "uplink_auto_failover": True,
-        "uplink_priority": ["eth0", "wlan0"],
+        # wlan0 deliberately left out of the default failover list: it's the
+        # default AP interface itself, so it can't also serve as a fallback
+        # uplink (a radio can't be its own internet source). Add it back
+        # manually if you switch the AP onto a different interface (e.g. a
+        # USB dongle) and free up wlan0 for uplink duty instead.
+        "uplink_priority": ["eth0"],
         "captive_portal_enabled": False,
         "captive_portal_username": "guest",
         "captive_portal_password": "",
+        "hotspot_enabled": True,
     }
 
 
@@ -1314,11 +1320,7 @@ dhcp-range={cfg['ap_dhcp_start']},{cfg['ap_dhcp_end']},255.255.255.0,12h
     run(["sudo", "cp", "/tmp/pantherpi_dnsmasq.conf", DNSMASQ_CONF])
 
 
-@app.route("/api/hotspot/start", methods=["POST"])
-def api_hotspot_start():
-    if not is_logged_in():
-        return jsonify({"error": "unauthorized"}), 401
-    cfg = load_config()
+def start_hotspot(cfg):
     iface = cfg["ap_interface"]
 
     run(["sudo", "systemctl", "stop", "hostapd"])
@@ -1352,6 +1354,26 @@ def api_hotspot_start():
         apply_all_routing_rules(cfg)
     apply_captive_portal_rules(cfg)
 
+
+def stop_hotspot(cfg):
+    run(["sudo", "systemctl", "stop", "hostapd"])
+    run(["sudo", "systemctl", "stop", "dnsmasq"])
+    run(["sudo", "nmcli", "device", "set", cfg["ap_interface"], "managed", "yes"])
+    clear_leak_protection()
+    clear_vpn_kill_switch()
+    clear_captive_portal_rules()
+
+
+@app.route("/api/hotspot/start", methods=["POST"])
+def api_hotspot_start():
+    if not is_logged_in():
+        return jsonify({"error": "unauthorized"}), 401
+    cfg = load_config()
+    start_hotspot(cfg)
+    cfg["hotspot_enabled"] = True
+    save_config(cfg)
+
+    iface = cfg["ap_interface"]
     code, ip_out, _ = run(["bash", "-c", f"ip -br addr show {iface}"])
     return jsonify({
         "ok": hostapd_active() and (f"{cfg['ap_ip']}" in ip_out),
@@ -1366,12 +1388,9 @@ def api_hotspot_stop():
     if not is_logged_in():
         return jsonify({"error": "unauthorized"}), 401
     cfg = load_config()
-    run(["sudo", "systemctl", "stop", "hostapd"])
-    run(["sudo", "systemctl", "stop", "dnsmasq"])
-    run(["sudo", "nmcli", "device", "set", cfg["ap_interface"], "managed", "yes"])
-    clear_leak_protection()
-    clear_vpn_kill_switch()
-    clear_captive_portal_rules()
+    stop_hotspot(cfg)
+    cfg["hotspot_enabled"] = False
+    save_config(cfg)
     return jsonify({"ok": True})
 
 
@@ -2648,6 +2667,23 @@ def api_system_reboot():
     return jsonify({"ok": True})
 
 
+def restore_hotspot_on_boot():
+    """Runs once per service start (boot, or a service restart after a
+    deploy). If the hotspot was on when it was last stopped, bring it back
+    up automatically - same expectation as any normal router. Runs in its
+    own thread so the web UI itself is reachable immediately rather than
+    waiting on hostapd's startup retry loop."""
+    cfg = load_config()
+    if not cfg.get("hotspot_enabled"):
+        return
+    time.sleep(5)  # let NetworkManager finish enumerating interfaces after boot
+    try:
+        start_hotspot(cfg)
+    except Exception:
+        pass
+
+
+threading.Thread(target=restore_hotspot_on_boot, daemon=True).start()
 threading.Thread(target=vpn_kill_switch_watcher, daemon=True).start()
 
 

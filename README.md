@@ -103,15 +103,19 @@ alone is treated as secure.
 ## After install
 
 1. Log in (`admin` / `admin`) and change the password under **Settings**.
-2. Go to **Hotspot**, pick your AP interface and uplink interface, set an SSID/password, and hit
-   **START HOTSPOT**. The hotspot is *not* auto-started on boot or on service restart — this is
-   intentional, so you can always reach this admin GUI over plain WiFi/Ethernet while you're
-   still configuring things, without also broadcasting an AP.
-3. Optionally set up a VPN (NordVPN/ProtonVPN/WireGuard) or Proxy tunnel, then point the
+2. By default the hotspot is already broadcasting on `wlan0` (SSID `PantherPi`, password
+   `PantherPi123`) with `eth0` as the internet uplink — same out-of-box behavior as a normal
+   router. Go to **Hotspot** to change the SSID/password/interfaces to your own, and hit **SAVE
+   CONFIGURATION** then **RESTART HOTSPOT** to apply. If your AP and uplink need to be different
+   interfaces than the defaults (e.g. a USB WiFi dongle for the AP, onboard `wlan0` free for
+   something else), switch that here too.
+3. Whatever hotspot state you leave it in (on or off, whichever interfaces) is remembered and
+   restored automatically on every future boot or service restart.
+4. Optionally set up a VPN (NordVPN/ProtonVPN/WireGuard) or Proxy tunnel, then point the
    **uplink** at it, or use **Routing** to send hotspot traffic through it directly.
-4. Turn on **Firewall → VPN kill switch** if you want hotspot clients to get zero internet
+5. Turn on **Firewall → VPN kill switch** if you want hotspot clients to get zero internet
    whenever the tunnel drops, instead of falling back to a plain connection.
-5. Optionally enable **Captive Portal** if you want guests to sign in before getting online.
+6. Optionally enable **Captive Portal** if you want guests to sign in before getting online.
 
 ## Uninstall
 
