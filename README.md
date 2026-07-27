@@ -63,8 +63,10 @@ before it ever reaches your devices.
 - **Firewall** —
   - *Leak protection*: hotspot traffic may only exit via the configured uplink; anything that
     would otherwise leak out a different interface is dropped instead
-  - *VPN kill switch*: hard-blocks ALL hotspot internet unless a real tunnel (VPN or proxy) is
-    actively up — a plain unencrypted uplink never satisfies it
+  - *VPN kill switch* (**on by default**): hard-blocks ALL hotspot internet unless a real tunnel
+    (VPN or proxy) is actively up — a plain unencrypted uplink never satisfies it, and this stays
+    enforced through interface changes (e.g. moving the AP from `wlan1` to `wlan0`) with no
+    manual re-wiring needed
   - Manual MAC address blocklist
 - **Captive Portal** — gate the whole hotspot behind a sign-in page (real iptables-level
   enforcement by MAC address, not just an app-layer redirect) — shows guests the external IP and
@@ -111,10 +113,14 @@ alone is treated as secure.
    something else), switch that here too.
 3. Whatever hotspot state you leave it in (on or off, whichever interfaces) is remembered and
    restored automatically on every future boot or service restart.
-4. Optionally set up a VPN (NordVPN/ProtonVPN/WireGuard) or Proxy tunnel, then point the
-   **uplink** at it, or use **Routing** to send hotspot traffic through it directly.
-5. Turn on **Firewall → VPN kill switch** if you want hotspot clients to get zero internet
-   whenever the tunnel drops, instead of falling back to a plain connection.
+4. **The VPN kill switch is ON by default** (see Firewall) — hotspot clients get **zero internet**
+   until a real VPN or Proxy tunnel is actually up, with no silent plaintext fallback. This means a
+   fresh install broadcasts a hotspot with no internet on it until you either set up a
+   VPN/Proxy (below), or turn the kill switch off under **Firewall** if you'd rather allow a plain
+   `eth0`/`wlan0` connection through.
+5. Set up a VPN (NordVPN/ProtonVPN/WireGuard) or Proxy tunnel, then either point the **uplink** at
+   it, or use **Routing** to send hotspot traffic through it directly — this is what satisfies the
+   kill switch above.
 6. Optionally enable **Captive Portal** if you want guests to sign in before getting online.
 
 ## Uninstall

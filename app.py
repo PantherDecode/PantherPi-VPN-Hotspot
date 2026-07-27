@@ -111,7 +111,9 @@ def default_config():
         "leak_protection": True,
         "blocked_macs": [],
         "ap_channel": 6,
-        "vpn_kill_switch": False,
+        # secure by default: hotspot clients get zero internet unless a real
+        # VPN/proxy tunnel is actually up - never a silent plaintext fallback
+        "vpn_kill_switch": True,
         "routing_rules": [],
         "proxy_enabled": False,
         "proxy_type": "http",
