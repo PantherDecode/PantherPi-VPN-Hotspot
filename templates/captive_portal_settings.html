@@ -1,0 +1,108 @@
+{% extends "base.html" %}
+{% block content %}
+<header class="page-head">
+  <h1>CAPTIVE PORTAL</h1>
+  <div class="page-head-sub">Require a login before new hotspot clients get internet access</div>
+</header>
+
+<section class="panel">
+  <h2>SETUP</h2>
+  <div class="hint">
+    When enabled, every device on the hotspot subnet must sign in with the credentials below before any
+    traffic is allowed through - the same pattern as hotel/airport WiFi. Devices stay signed in (by MAC
+    address) until you revoke them below or the hotspot restarts. This applies to the whole hotspot
+    subnet, including this admin GUI if you access it from a hotspot client.
+  </div>
+
+  <div class="field-row">
+    <label>ENABLE CAPTIVE PORTAL</label>
+    <label class="switch">
+      <input type="checkbox" id="cp-enabled" {{ 'checked' if cfg.captive_portal_enabled else '' }}>
+      <span>Gate the hotspot behind a sign-in page</span>
+    </label>
+  </div>
+  <div class="field-row">
+    <label>USERNAME</label>
+    <input type="text" id="cp-username" value="{{ cfg.captive_portal_username }}">
+  </div>
+  <div class="field-row">
+    <label>PASSWORD</label>
+    <input type="password" id="cp-password" placeholder="{{ 'saved - leave blank to keep' if cfg.captive_portal_password else 'set a password' }}">
+    <button class="btn-ghost btn-sm" onclick="toggleCpPasswordVisibility()" id="cp-password-toggle">SHOW</button>
+  </div>
+
+  <button class="btn-primary" onclick="saveCaptivePortal()">SAVE &amp; APPLY</button>
+  <div id="cp-save-status" class="hint"></div>
+</section>
+
+<section class="panel">
+  <h2>SIGNED-IN DEVICES</h2>
+  <table class="data-table" id="cp-clients-table">
+    <thead><tr><th>MAC ADDRESS</th><th></th></tr></thead>
+    <tbody>
+      {% for mac in clients %}
+      <tr data-mac="{{ mac }}">
+        <td>{{ mac }}</td>
+        <td><button class="btn-danger btn-sm" onclick="revokeCpClient('{{ mac }}')">REVOKE</button></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% if not clients %}<div class="empty-state" id="cp-clients-empty">No devices signed in yet</div>{% endif %}
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function toggleCpPasswordVisibility() {
+  const input = document.getElementById('cp-password');
+  const btn = document.getElementById('cp-password-toggle');
+  const showing = input.type === 'text';
+  input.type = showing ? 'password' : 'text';
+  btn.textContent = showing ? 'SHOW' : 'HIDE';
+}
+
+async function saveCaptivePortal() {
+  const status = document.getElementById('cp-save-status');
+  status.textContent = 'Saving...';
+  const res = await fetch('/api/captive_portal/save', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({
+      enabled: document.getElementById('cp-enabled').checked,
+      username: document.getElementById('cp-username').value.trim(),
+      password: document.getElementById('cp-password').value,
+    })
+  });
+  const data = await res.json();
+  status.textContent = data.ok ? 'Saved and applied.' : `Failed: ${data.error || 'unknown error'}`;
+  document.getElementById('cp-password').value = '';
+}
+
+async function revokeCpClient(mac) {
+  await fetch('/api/captive_portal/revoke', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({mac})
+  });
+  const row = document.querySelector(`#cp-clients-table tr[data-mac="${mac}"]`);
+  if (row) row.remove();
+  const tbody = document.querySelector('#cp-clients-table tbody');
+  if (tbody && !tbody.children.length) {
+    const empty = document.getElementById('cp-clients-empty');
+    if (empty) empty.style.display = '';
+  }
+}
+
+async function refreshCaptivePortalStatus() {
+  try {
+    const res = await fetch('/api/captive_portal/status');
+    const data = await res.json();
+    const passInput = document.getElementById('cp-password');
+    const userInput = document.getElementById('cp-username');
+    if (data.password && document.activeElement !== passInput) passInput.value = data.password;
+    if (document.activeElement !== userInput) userInput.value = data.username || '';
+  } catch (e) { console.error(e); }
+}
+
+refreshCaptivePortalStatus();
+</script>
+{% endblock %}

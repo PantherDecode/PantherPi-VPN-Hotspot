@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% block content %}
+<header class="page-head">
+  <h1>SETTINGS</h1>
+  <div class="page-head-sub">Account &amp; system preferences</div>
+</header>
+
+<section class="panel">
+  <h2>ACCOUNT</h2>
+  <form id="password-form">
+    <div class="field-row">
+      <label>CURRENT PASSWORD</label>
+      <input type="password" id="current-password" autocomplete="current-password" required>
+    </div>
+    <div class="field-row">
+      <label>NEW PASSWORD</label>
+      <input type="password" id="new-password" autocomplete="new-password" required>
+    </div>
+    <div class="field-row">
+      <label>CONFIRM NEW PASSWORD</label>
+      <input type="password" id="confirm-password" autocomplete="new-password" required>
+    </div>
+    <button type="submit" class="btn-primary">CHANGE PASSWORD</button>
+    <div id="password-status" class="hint"></div>
+  </form>
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.getElementById('password-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const status = document.getElementById('password-status');
+  const current = document.getElementById('current-password').value;
+  const next = document.getElementById('new-password').value;
+  const confirm = document.getElementById('confirm-password').value;
+  if (next !== confirm) {
+    status.textContent = 'New passwords do not match';
+    return;
+  }
+  status.textContent = 'Saving...';
+  const res = await fetch('/api/account/change_password', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({current_password: current, new_password: next})
+  });
+  const data = await res.json();
+  status.textContent = data.ok ? 'Password changed.' : (data.error || 'Failed');
+  if (data.ok) document.getElementById('password-form').reset();
+});
+</script>
+{% endblock %}

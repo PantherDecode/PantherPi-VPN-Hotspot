@@ -1,0 +1,173 @@
+{% extends "base.html" %}
+{% block content %}
+<header class="page-head">
+  <h1>PROXY</h1>
+  <div class="page-head-sub">Route hotspot traffic through an upstream HTTP/SOCKS5 proxy, with its own kill switch</div>
+</header>
+
+<section class="panel">
+  <h2>STATUS</h2>
+  <div class="hotspot-status">
+    <div class="status-ring" id="proxy-ring"><div class="status-ring-icon">◎</div></div>
+    <div>
+      <div class="hotspot-state-text" id="proxy-state">CHECKING...</div>
+      <div class="hint" id="proxy-detail">—</div>
+    </div>
+  </div>
+  <div class="hint" id="proxy-installed-hint"></div>
+  <button class="btn-danger btn-sm" onclick="proxyOff()" id="proxy-off-btn">PROXY OFF</button>
+</section>
+
+<section class="panel">
+  <h2>PROXY SETUP</h2>
+  <div class="hint">
+    Creates a real "prox0" tunnel interface (via tun2socks bridging into the proxy below) and routes it to your
+    hotspot the same way any other VPN tunnel would be - it'll show up on the Dashboard just like tun0/wg0 do.
+    tun2socks is installed automatically the first time you enable this.
+  </div>
+
+  <div class="field-row">
+    <label>TYPE</label>
+    <select id="proxy-type">
+      <option value="http" {{ 'selected' if cfg.proxy_type == 'http' else '' }}>HTTP / HTTPS CONNECT</option>
+      <option value="socks5" {{ 'selected' if cfg.proxy_type == 'socks5' else '' }}>SOCKS5</option>
+    </select>
+  </div>
+  <div class="field-row">
+    <label>HOST</label>
+    <input type="text" id="proxy-host" placeholder="proxy.example.com or 1.2.3.4" value="{{ cfg.proxy_host }}">
+  </div>
+  <div class="field-row">
+    <label>PORT</label>
+    <input type="text" id="proxy-port" placeholder="8080" value="{{ cfg.proxy_port }}">
+  </div>
+  <div class="field-row">
+    <label>USERNAME</label>
+    <input type="text" id="proxy-username" placeholder="optional" value="{{ cfg.proxy_username }}">
+  </div>
+  <div class="field-row">
+    <label>PASSWORD</label>
+    <input type="password" id="proxy-password" placeholder="{{ 'saved - leave blank to keep' if cfg.proxy_password else 'optional' }}">
+    <button class="btn-ghost btn-sm" onclick="toggleProxyPasswordVisibility()" id="proxy-password-toggle">SHOW</button>
+  </div>
+
+  <div class="field-row">
+    <label>ENABLE PROXY</label>
+    <label class="switch">
+      <input type="checkbox" id="proxy-enabled" {{ 'checked' if cfg.proxy_enabled else '' }}>
+      <span>Route hotspot client traffic through a dedicated prox0 tunnel interface</span>
+    </label>
+  </div>
+  <div class="field-row">
+    <label>PROXY KILL SWITCH</label>
+    <label class="switch">
+      <input type="checkbox" id="proxy-kill-switch" {{ 'checked' if cfg.proxy_kill_switch else '' }}>
+      <span>Hard block: hotspot gets ZERO internet if the prox0 tunnel isn't actively up - not just unproxied fallback, full stop</span>
+    </label>
+  </div>
+
+  <button class="btn-ghost" onclick="testProxy()">TEST CONNECTION</button>
+  <button class="btn-primary" onclick="saveProxy()">SAVE &amp; APPLY</button>
+  <div id="proxy-test-status" class="hint"></div>
+  <div id="proxy-save-status" class="hint"></div>
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function toggleProxyPasswordVisibility() {
+  const input = document.getElementById('proxy-password');
+  const btn = document.getElementById('proxy-password-toggle');
+  const showing = input.type === 'text';
+  input.type = showing ? 'password' : 'text';
+  btn.textContent = showing ? 'SHOW' : 'HIDE';
+}
+
+function currentProxyFields() {
+  return {
+    type: document.getElementById('proxy-type').value,
+    host: document.getElementById('proxy-host').value.trim(),
+    port: document.getElementById('proxy-port').value.trim(),
+    username: document.getElementById('proxy-username').value.trim(),
+    password: document.getElementById('proxy-password').value,
+  };
+}
+
+async function refreshProxyStatus() {
+  try {
+    const res = await fetch('/api/proxy/status');
+    const data = await res.json();
+
+    const ring = document.getElementById('proxy-ring');
+    const up = data.enabled && data.prox0_up && data.route_applied;
+    ring.classList.toggle('up', up);
+    let stateText = 'DISABLED';
+    if (data.enabled) {
+      if (up) stateText = 'ACTIVE';
+      else if (!data.tun2socks_installed) stateText = 'NOT INSTALLED';
+      else if (!data.prox0_up) stateText = 'prox0 DOWN';
+      else stateText = 'ROUTE NOT APPLIED';
+    }
+    document.getElementById('proxy-state').textContent = stateText;
+    document.getElementById('proxy-detail').textContent = data.enabled
+      ? `${data.type.toUpperCase()} ${data.host || '?'}:${data.port || '?'}${data.kill_switch ? ' - kill switch ON' : ''}`
+      : 'Proxy is disabled';
+    document.getElementById('proxy-installed-hint').textContent = data.tun2socks_installed
+      ? ''
+      : 'tun2socks is not installed yet - it will be installed automatically the first time you enable the proxy.';
+
+    const hostInput = document.getElementById('proxy-host');
+    const userInput = document.getElementById('proxy-username');
+    const passInput = document.getElementById('proxy-password');
+    if (document.activeElement !== hostInput) hostInput.value = data.host || '';
+    if (document.activeElement !== userInput) userInput.value = data.username || '';
+    if (data.password && document.activeElement !== passInput) passInput.value = data.password;
+  } catch (e) { console.error(e); }
+}
+
+async function proxyOff() {
+  const btn = document.getElementById('proxy-off-btn');
+  btn.disabled = true;
+  btn.textContent = 'TURNING OFF...';
+  await fetch('/api/proxy/off', {method: 'POST'});
+  document.getElementById('proxy-enabled').checked = false;
+  btn.disabled = false;
+  btn.textContent = 'PROXY OFF';
+  refreshProxyStatus();
+}
+
+async function testProxy() {
+  const status = document.getElementById('proxy-test-status');
+  status.textContent = 'Testing...';
+  const fields = currentProxyFields();
+  if (!fields.host || !fields.port) { status.textContent = 'Enter a host and port first.'; return; }
+  const res = await fetch('/api/proxy/test', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(fields)
+  });
+  const data = await res.json();
+  status.textContent = data.ok ? 'Success - proxy is reachable and working.' : `Failed: ${data.output || data.error || 'unknown error'}`;
+}
+
+async function saveProxy() {
+  const status = document.getElementById('proxy-save-status');
+  status.textContent = 'Saving...';
+  const fields = currentProxyFields();
+  const res = await fetch('/api/proxy/save', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({
+      ...fields,
+      enabled: document.getElementById('proxy-enabled').checked,
+      kill_switch: document.getElementById('proxy-kill-switch').checked,
+    })
+  });
+  const data = await res.json();
+  status.textContent = data.ok ? 'Saved and applied.' : `Failed: ${data.error || 'unknown error'}`;
+  document.getElementById('proxy-password').value = '';
+  refreshProxyStatus();
+}
+
+refreshProxyStatus();
+setInterval(refreshProxyStatus, 6000);
+</script>
+{% endblock %}

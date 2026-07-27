@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ app_name }} — Login</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body class="login-body">
+<div class="scanlines"></div>
+<div class="grid-bg"></div>
+
+<div class="login-wrap">
+  <div class="login-ring">
+    <div class="login-ring-inner"><span class="pulse-dot"></span></div>
+  </div>
+  <h1 class="login-title">{{ app_name }}</h1>
+  <div class="login-sub">AUTHENTICATION REQUIRED</div>
+
+  <form method="post" class="login-form">
+    {% if error %}<div class="login-error">{{ error }}</div>{% endif %}
+    <label>USERNAME</label>
+    <input type="text" name="username" autocomplete="username" required autofocus>
+    <label>PASSWORD</label>
+    <input type="password" name="password" autocomplete="current-password" required>
+    <button type="submit">ENGAGE</button>
+  </form>
+  <div class="login-hint">default: admin / admin — change this in Network settings</div>
+</div>
+</body>
+</html>

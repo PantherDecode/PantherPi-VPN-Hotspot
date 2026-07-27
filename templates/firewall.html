@@ -1,0 +1,86 @@
+{% extends "base.html" %}
+{% block content %}
+<header class="page-head">
+  <h1>FIREWALL</h1>
+  <div class="page-head-sub">Leak protection &amp; client access control</div>
+</header>
+
+<section class="panel">
+  <h2>KILL SWITCH</h2>
+  <div class="field-row">
+    <label>LEAK PROTECTION</label>
+    <label class="switch">
+      <input type="checkbox" id="leak-protection" {{ 'checked' if cfg.leak_protection else '' }}>
+      <span>Only allow hotspot traffic out via the configured uplink ({{ cfg.uplink_interface }}) — anything that would exit via a different interface is dropped, not leaked</span>
+    </label>
+  </div>
+  <div class="field-row">
+    <label>VPN KILL SWITCH <span class="badge {{ 'badge-ok' if tunnel else 'badge-danger' }}">{{ tunnel or 'NO TUNNEL' }}</span></label>
+    <label class="switch">
+      <input type="checkbox" id="vpn-kill-switch" {{ 'checked' if cfg.vpn_kill_switch else '' }}>
+      <span>Hard block: hotspot gets ZERO internet unless a real VPN tunnel (NordLynx/OpenVPN/WireGuard) is actively up - not just "wrong interface", full stop, even if a plain connection is available</span>
+    </label>
+  </div>
+  <button id="save-firewall" class="btn-primary">SAVE</button>
+  <div id="firewall-save-status" class="hint"></div>
+  {% if not active %}
+  <div class="hint">Hotspot is currently offline — this will apply automatically the next time it starts.</div>
+  {% endif %}
+</section>
+
+<section class="panel">
+  <h2>BLOCKED CLIENTS <span id="blocked-count" class="badge">{{ cfg.blocked_macs|length }}</span></h2>
+  <div class="field-row">
+    <label>ADD MAC MANUALLY</label>
+    <input type="text" id="manual-mac" placeholder="aa:bb:cc:dd:ee:ff">
+    <button class="btn-danger" onclick="blockManual()">BLOCK</button>
+  </div>
+  <table class="data-table" id="blocked-table">
+    <thead><tr><th>MAC ADDRESS</th><th></th></tr></thead>
+    <tbody>
+      {% for mac in cfg.blocked_macs %}
+      <tr data-mac="{{ mac }}"><td>{{ mac }}</td><td><button class="btn-ghost btn-sm" onclick="unblockClient('{{ mac }}')">UNBLOCK</button></td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% if not cfg.blocked_macs %}
+  <div class="empty-state" id="blocked-empty">No blocked clients</div>
+  {% endif %}
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.getElementById('save-firewall').addEventListener('click', async () => {
+  const status = document.getElementById('firewall-save-status');
+  status.textContent = 'Saving...';
+  const res = await fetch('/api/firewall/save', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({
+      leak_protection: document.getElementById('leak-protection').checked,
+      vpn_kill_switch: document.getElementById('vpn-kill-switch').checked
+    })
+  });
+  const data = await res.json();
+  status.textContent = data.ok ? 'Saved and applied.' : 'Failed to save';
+});
+
+async function blockManual() {
+  const mac = document.getElementById('manual-mac').value.trim();
+  if (!mac) return;
+  await fetch('/api/client/block', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({mac})
+  });
+  location.reload();
+}
+
+async function unblockClient(mac) {
+  await fetch('/api/client/unblock', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({mac})
+  });
+  location.reload();
+}
+</script>
+{% endblock %}

@@ -1,0 +1,119 @@
+{% extends "base.html" %}
+{% block content %}
+<header class="page-head">
+  <h1>HOTSPOT</h1>
+  <div class="page-head-sub">Broadcast your own access point</div>
+</header>
+
+<section class="panel">
+  <div class="hotspot-status">
+    <div class="status-ring {{ 'up' if active else '' }}" id="hs-ring"><div class="status-ring-icon">◎</div></div>
+    <div>
+      <div class="hotspot-state-text" id="hs-state">{{ 'ONLINE' if active else 'OFFLINE' }}</div>
+      <div class="hint">{{ cfg.ap_ssid }} on {{ cfg.ap_interface }}</div>
+    </div>
+    <button id="toggle-btn" class="btn-primary {{ 'btn-danger' if active else '' }}">
+      {{ 'STOP HOTSPOT' if active else 'START HOTSPOT' }}
+    </button>
+    <button id="restart-hotspot-btn" class="btn-ghost">⟳ RESTART HOTSPOT</button>
+  </div>
+</section>
+
+<section class="panel">
+  <h2>CONFIGURATION</h2>
+  <form id="hotspot-form">
+    <div class="field-row">
+      <label>AP INTERFACE</label>
+      <select name="ap_interface">
+        {% for i in ap_capable %}
+        <option value="{{ i }}" {{ 'selected' if i == cfg.ap_interface else '' }}>{{ i }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    {% if not ap_capable %}
+    <div class="login-error">No AP-capable wireless interface detected right now.</div>
+    {% endif %}
+    <div class="field-row">
+      <label>UPLINK INTERFACE (internet source)</label>
+      <select name="uplink_interface">
+        {% for i in uplink_choices %}
+        <option value="{{ i }}" {{ 'selected' if i == cfg.uplink_interface else '' }}>{{ i }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="field-row">
+      <label>AUTO FAILOVER</label>
+      <label class="switch">
+        <input type="checkbox" name="uplink_auto_failover" id="uplink-auto-failover" {{ 'checked' if cfg.uplink_auto_failover else '' }}>
+        <span>Automatically prefer eth0 when it's up, fall back to wlan0 if it drops, and switch back when eth0 returns - overrides the manual dropdown above, including reconnecting the active VPN tunnel so it re-homes onto the new path</span>
+      </label>
+    </div>
+    <div class="field-row">
+      <label>KILL SWITCH</label>
+      <label class="switch">
+        <input type="checkbox" name="leak_protection" id="leak-protection" {{ 'checked' if cfg.leak_protection else '' }}>
+        <span>Block hotspot traffic instead of leaking out another interface</span>
+      </label>
+    </div>
+    <div class="field-row">
+      <label>SSID</label>
+      <input type="text" name="ap_ssid" value="{{ cfg.ap_ssid }}">
+    </div>
+    <div class="field-row">
+      <label>PASSWORD</label>
+      <input type="text" name="ap_password" value="{{ cfg.ap_password }}">
+    </div>
+    <div class="field-row">
+      <label>AP STATIC IP</label>
+      <input type="text" name="ap_ip" value="{{ cfg.ap_ip }}">
+    </div>
+    <div class="field-row">
+      <label>DHCP RANGE</label>
+      <input type="text" name="ap_dhcp_start" value="{{ cfg.ap_dhcp_start }}" placeholder="start">
+      <input type="text" name="ap_dhcp_end" value="{{ cfg.ap_dhcp_end }}" placeholder="end">
+    </div>
+    <button type="submit" class="btn-primary">SAVE CONFIGURATION</button>
+    <div id="save-status" class="hint"></div>
+  </form>
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.getElementById('hotspot-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const fd = new FormData(e.target);
+  const payload = Object.fromEntries(fd.entries());
+  // unchecked checkboxes are simply omitted from FormData, not sent as
+  // false - set them explicitly so unchecking actually persists
+  payload.leak_protection = document.getElementById('leak-protection').checked;
+  payload.uplink_auto_failover = document.getElementById('uplink-auto-failover').checked;
+  const status = document.getElementById('save-status');
+  status.textContent = 'Saving...';
+  const res = await fetch('/api/hotspot/save', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(payload)
+  });
+  const data = await res.json();
+  status.textContent = data.ok ? 'Saved. Restart hotspot to apply.' : 'Failed to save';
+});
+
+document.getElementById('toggle-btn').addEventListener('click', async () => {
+  const btn = document.getElementById('toggle-btn');
+  const active = btn.textContent.includes('STOP');
+  btn.disabled = true;
+  btn.textContent = active ? 'STOPPING...' : 'STARTING...';
+  const res = await fetch(active ? '/api/hotspot/stop' : '/api/hotspot/start', {method: 'POST'});
+  const data = await res.json();
+  setTimeout(() => location.reload(), 800);
+});
+
+document.getElementById('restart-hotspot-btn').addEventListener('click', async () => {
+  const btn = document.getElementById('restart-hotspot-btn');
+  btn.disabled = true;
+  btn.textContent = 'RESTARTING...';
+  await fetch('/api/hotspot/start', {method: 'POST'});
+  setTimeout(() => location.reload(), 1000);
+});
+</script>
+{% endblock %}

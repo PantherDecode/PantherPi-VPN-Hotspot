@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ app_name }}</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🐾</text></svg>">
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<div class="scanlines"></div>
+<div class="grid-bg"></div>
+
+<button class="mobile-menu-btn" onclick="document.querySelector('.sidebar').classList.toggle('open'); document.querySelector('.sidebar-overlay').classList.toggle('open');">☰</button>
+<div class="sidebar-overlay" onclick="document.querySelector('.sidebar').classList.remove('open'); this.classList.remove('open');"></div>
+
+<div class="shell">
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="brand-ring"><span></span></div>
+      <div class="brand-text">
+        <div class="brand-name">{{ app_name }}</div>
+        <div class="brand-sub">VPN HOTSPOT</div>
+      </div>
+    </div>
+    <nav>
+      <a href="/" class="{{ 'active' if request.path == '/' else '' }}">
+        <span class="nav-dot"></span>DASHBOARD
+      </a>
+      <a href="/wifi" class="{{ 'active' if request.path == '/wifi' else '' }}">
+        <span class="nav-dot"></span><span class="nav-label" id="nav-label-wifi">WIFI CLIENT</span>
+      </a>
+      <a href="/hotspot" class="{{ 'active' if request.path == '/hotspot' else '' }}">
+        <span class="nav-dot"></span><span class="nav-label" id="nav-label-hotspot">HOTSPOT</span>
+      </a>
+      <a href="/captive-portal-settings" class="{{ 'active' if request.path == '/captive-portal-settings' else '' }}">
+        <span class="nav-dot" id="captive-portal-nav-dot"></span>CAPTIVE PORTAL
+      </a>
+      <a href="/firewall" class="{{ 'active' if request.path == '/firewall' else '' }}">
+        <span class="nav-dot"></span>FIREWALL
+      </a>
+      <a href="/network" class="{{ 'active' if request.path == '/network' else '' }}">
+        <span class="nav-dot"></span>NETWORK
+      </a>
+      <a href="/vpn" class="{{ 'active' if request.path == '/vpn' else '' }}">
+        <span class="nav-dot" id="vpn-nav-dot"></span><span class="nav-label" id="nav-label-vpn">VPN</span>
+      </a>
+      <a href="/routing" class="{{ 'active' if request.path == '/routing' else '' }}">
+        <span class="nav-dot"></span>ROUTING
+      </a>
+      <a href="/proxy" class="{{ 'active' if request.path == '/proxy' else '' }}">
+        <span class="nav-dot" id="proxy-nav-dot"></span>PROXY
+      </a>
+      <a href="/settings" class="{{ 'active' if request.path == '/settings' else '' }}">
+        <span class="nav-dot"></span>SETTINGS
+      </a>
+    </nav>
+    <a href="/logout" class="logout-link">⏻ DISCONNECT SESSION</a>
+  </aside>
+
+  <main class="content">
+    {% block content %}{% endblock %}
+  </main>
+</div>
+
+<button class="term-toggle-btn" id="term-toggle-btn" onclick="toggleTerminal()">&gt;_</button>
+<div class="term-panel" id="term-panel">
+  <div class="term-header">
+    <span>PANTHERPI TERMINAL</span>
+    <button class="term-close" onclick="toggleTerminal()">×</button>
+  </div>
+  <div class="term-output" id="term-output"></div>
+  <div class="term-input-row">
+    <span class="term-prompt" id="term-prompt">$</span>
+    <input type="text" id="term-input" autocomplete="off" spellcheck="false" placeholder="type a command...">
+  </div>
+</div>
+
+<script src="/static/app.js"></script>
+<script src="/static/terminal.js"></script>
+{% block scripts %}{% endblock %}
+</body>
+</html>

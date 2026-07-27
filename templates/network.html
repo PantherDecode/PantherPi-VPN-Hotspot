@@ -1,0 +1,143 @@
+{% extends "base.html" %}
+{% block content %}
+<header class="page-head">
+  <h1>NETWORK</h1>
+  <div class="page-head-sub">DHCP leases &amp; current config</div>
+</header>
+
+<section class="panel">
+  <h2>ETHERNET LAN <span id="ethlan-status-badge" class="badge">—</span></h2>
+  <div class="hint">
+    Turns eth0 into a real router LAN port: whatever's plugged in gets a static IP + DHCP and shares
+    internet from whichever interface you pick below, complete with the same kill switch used on the
+    Routing page.
+  </div>
+  <div class="field-row">
+    <label>ENABLE</label>
+    <label class="switch">
+      <input type="checkbox" id="ethlan-enabled">
+      <span>Give eth0 its own subnet + DHCP + internet</span>
+    </label>
+  </div>
+  <div class="field-row">
+    <label>LAN IP</label>
+    <input type="text" id="ethlan-ip" placeholder="10.4.1.1" style="max-width:160px;">
+  </div>
+  <div class="field-row">
+    <label>DHCP RANGE</label>
+    <input type="text" id="ethlan-dhcp-start" placeholder="10.4.1.50" style="max-width:140px;">
+    <span style="color:var(--text-dim);">to</span>
+    <input type="text" id="ethlan-dhcp-end" placeholder="10.4.1.254" style="max-width:140px;">
+  </div>
+  <div class="field-row">
+    <label>SHARE INTERNET FROM</label>
+    <select id="ethlan-uplink"><option>Loading...</option></select>
+  </div>
+  <button class="btn-primary" onclick="saveEthLan()">SAVE</button>
+  <div id="ethlan-status" class="hint"></div>
+</section>
+
+<section class="panel">
+  <h2>ACTIVE DHCP LEASES</h2>
+  <table class="data-table" id="leases-table">
+    <thead><tr><th>MAC ADDRESS</th><th>IP ADDRESS</th><th>HOSTNAME</th><th></th></tr></thead>
+    <tbody>
+      {% for l in leases %}
+      <tr data-mac="{{ l.mac }}" data-ip="{{ l.ip }}">
+        <td>{{ l.mac }}</td><td>{{ l.ip }}</td><td>{{ l.hostname }}</td>
+        <td><button class="btn-danger btn-sm" onclick="removeLease('{{ l.mac }}','{{ l.ip }}')">REMOVE</button></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% if not leases %}<div class="empty-state">No active leases</div>{% endif %}
+</section>
+
+<section class="panel">
+  <h2>CURRENT CONFIG SUMMARY</h2>
+  <table class="data-table">
+    <tr><td>AP Interface</td><td>{{ cfg.ap_interface }}</td></tr>
+    <tr><td>AP Static IP</td><td>{{ cfg.ap_ip }}</td></tr>
+    <tr><td>DHCP Range</td><td>{{ cfg.ap_dhcp_start }} – {{ cfg.ap_dhcp_end }}</td></tr>
+    <tr><td>Uplink Interface</td><td>{{ cfg.uplink_interface }}</td></tr>
+  </table>
+  <div class="hint">To change these, use the Hotspot page.</div>
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script>
+async function removeLease(mac, ip) {
+  if (!confirm('Remove lease for ' + ip + ' (' + mac + ')? This also disconnects the device if currently connected.')) return;
+  await fetch('/api/lease/remove', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({mac, ip})
+  });
+  document.querySelector(`tr[data-mac="${mac}"]`)?.remove();
+}
+
+let ethLanLoaded = false;
+
+async function refreshEthLan() {
+  try {
+    const res = await fetch('/api/ethlan/status');
+    const data = await res.json();
+
+    const badge = document.getElementById('ethlan-status-badge');
+    if (!data.enabled) {
+      badge.textContent = 'DISABLED';
+    } else if (!data.iface_up) {
+      badge.textContent = 'CABLE NOT CONNECTED';
+    } else if (!data.route_applied || !data.uplink_up) {
+      badge.textContent = 'UPLINK DOWN - BLOCKED';
+    } else {
+      badge.textContent = 'ACTIVE';
+    }
+
+    const uplinkSelect = document.getElementById('ethlan-uplink');
+    if (document.activeElement !== uplinkSelect) {
+      const current = uplinkSelect.value || data.uplink;
+      uplinkSelect.innerHTML = '';
+      (data.interfaces || []).forEach(name => {
+        const opt = document.createElement('option');
+        opt.value = name;
+        opt.textContent = name;
+        uplinkSelect.appendChild(opt);
+      });
+      if (current) uplinkSelect.value = current;
+    }
+
+    // only prefill form fields once, so editing isn't clobbered by polling
+    if (!ethLanLoaded) {
+      document.getElementById('ethlan-enabled').checked = !!data.enabled;
+      document.getElementById('ethlan-ip').value = data.ip || '';
+      document.getElementById('ethlan-dhcp-start').value = data.dhcp_start || '';
+      document.getElementById('ethlan-dhcp-end').value = data.dhcp_end || '';
+      if (data.uplink) uplinkSelect.value = data.uplink;
+      ethLanLoaded = true;
+    }
+  } catch (e) { console.error(e); }
+}
+
+async function saveEthLan() {
+  const status = document.getElementById('ethlan-status');
+  status.textContent = 'Saving...';
+  const res = await fetch('/api/ethlan/save', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({
+      enabled: document.getElementById('ethlan-enabled').checked,
+      ip: document.getElementById('ethlan-ip').value.trim(),
+      dhcp_start: document.getElementById('ethlan-dhcp-start').value.trim(),
+      dhcp_end: document.getElementById('ethlan-dhcp-end').value.trim(),
+      uplink: document.getElementById('ethlan-uplink').value,
+    })
+  });
+  const data = await res.json();
+  status.textContent = data.ok ? 'Saved and applied.' : (data.error || 'Failed');
+  refreshEthLan();
+}
+
+refreshEthLan();
+setInterval(refreshEthLan, 6000);
+</script>
+{% endblock %}

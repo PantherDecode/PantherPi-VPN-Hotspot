@@ -1,0 +1,141 @@
+{% extends "base.html" %}
+{% block content %}
+<header class="page-head">
+  <h1>ROUTING</h1>
+  <div class="page-head-sub">Custom interface-to-interface rules, each with its own kill switch</div>
+</header>
+
+<section class="panel">
+  <div class="hint">
+    Route traffic from any "distribution" interface (receiving client traffic - AP, LAN port, etc.) out through
+    any "source" interface (providing internet - a VPN tunnel, WiFi client, wired uplink, etc.). Each rule has its
+    own kill switch: if enabled and the source interface goes down, that rule's traffic is dropped entirely rather
+    than falling back to leak out somewhere else.
+    <br><br>
+    Note: the distribution ("TO") interface needs its own IP/subnet already configured (e.g. a static IP you've set
+    via the terminal) - this page routes traffic for it, it doesn't set that interface up from scratch.
+  </div>
+</section>
+
+<section class="panel">
+  <h2>ADD RULE</h2>
+  <div class="field-row">
+    <label>FROM (source / internet)</label>
+    <select id="rule-from"></select>
+  </div>
+  <div class="field-row">
+    <label>TO (distribution)</label>
+    <select id="rule-to"></select>
+  </div>
+  <div class="field-row">
+    <label>KILL SWITCH</label>
+    <label class="switch">
+      <input type="checkbox" id="rule-kill-switch" checked>
+      <span>Block this rule's traffic entirely if the FROM interface goes down (recommended)</span>
+    </label>
+  </div>
+  <button class="btn-primary" onclick="addRule()">ADD RULE</button>
+  <div id="add-rule-status" class="hint"></div>
+</section>
+
+<section class="panel">
+  <h2>ACTIVE RULES <span id="rules-count" class="badge">0</span></h2>
+  <table class="data-table" id="rules-table">
+    <thead><tr><th>FROM</th><th>TO</th><th>KILL SWITCH</th><th>STATUS</th><th></th></tr></thead>
+    <tbody></tbody>
+  </table>
+  <div class="empty-state" id="rules-empty" style="display:none;">No routing rules yet</div>
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let allInterfaces = [];
+
+function fillSelect(select, interfaces) {
+  select.innerHTML = '';
+  interfaces.forEach(name => {
+    const opt = document.createElement('option');
+    opt.value = name;
+    opt.textContent = name;
+    select.appendChild(opt);
+  });
+}
+
+async function loadRules() {
+  try {
+    const res = await fetch('/api/routing/list');
+    const data = await res.json();
+    allInterfaces = data.interfaces || [];
+    fillSelect(document.getElementById('rule-from'), allInterfaces);
+    fillSelect(document.getElementById('rule-to'), allInterfaces);
+
+    const rules = data.rules || [];
+    document.getElementById('rules-count').textContent = rules.length;
+    document.getElementById('rules-empty').style.display = rules.length ? 'none' : 'block';
+
+    const tbody = document.querySelector('#rules-table tbody');
+    tbody.innerHTML = '';
+    rules.forEach(r => {
+      const statusTag = !r.enabled
+        ? '<span class="badge">DISABLED</span>'
+        : (r.from_up ? '<span class="badge badge-ok">ACTIVE</span>' : '<span class="badge badge-danger">FROM DOWN' + (r.kill_switch ? ' - BLOCKED' : ' - LEAKING') + '</span>');
+      tbody.innerHTML += `
+        <tr data-id="${r.id}">
+          <td>${r.from}</td>
+          <td>${r.to}</td>
+          <td>
+            <label class="switch" style="display:inline-flex;">
+              <input type="checkbox" ${r.kill_switch ? 'checked' : ''} onchange="updateRule('${r.id}', {kill_switch: this.checked})">
+              <span></span>
+            </label>
+          </td>
+          <td>${statusTag}</td>
+          <td>
+            <button class="btn-ghost btn-sm" onclick="updateRule('${r.id}', {enabled: ${!r.enabled}})">${r.enabled ? 'DISABLE' : 'ENABLE'}</button>
+            <button class="btn-danger btn-sm" onclick="deleteRule('${r.id}')">DELETE</button>
+          </td>
+        </tr>`;
+    });
+  } catch (e) { console.error(e); }
+}
+
+async function addRule() {
+  const from = document.getElementById('rule-from').value;
+  const to = document.getElementById('rule-to').value;
+  const kill_switch = document.getElementById('rule-kill-switch').checked;
+  const status = document.getElementById('add-rule-status');
+  if (from === to) { status.textContent = 'Pick two different interfaces.'; return; }
+  status.textContent = 'Adding...';
+  const res = await fetch('/api/routing/add', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({from, to, kill_switch})
+  });
+  const data = await res.json();
+  status.textContent = data.ok
+    ? (data.apply_result && data.apply_result.reason ? 'Added - ' + data.apply_result.reason : 'Added and applied.')
+    : (data.error || 'Failed');
+  loadRules();
+}
+
+async function updateRule(id, patch) {
+  await fetch('/api/routing/update', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({id, ...patch})
+  });
+  loadRules();
+}
+
+async function deleteRule(id) {
+  if (!confirm('Delete this routing rule?')) return;
+  await fetch('/api/routing/delete', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({id})
+  });
+  loadRules();
+}
+
+loadRules();
+setInterval(loadRules, 6000);
+</script>
+{% endblock %}

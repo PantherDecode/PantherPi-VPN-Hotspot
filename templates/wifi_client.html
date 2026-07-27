@@ -1,0 +1,110 @@
+{% extends "base.html" %}
+{% block content %}
+<header class="page-head">
+  <h1>WIFI CLIENT</h1>
+  <div class="page-head-sub">Connect an interface to a nearby network</div>
+</header>
+
+<section class="panel">
+  <div class="field-row">
+    <label>INTERFACE</label>
+    <select id="iface-select">
+      {% for i in interfaces %}<option value="{{ i }}">{{ i }}</option>{% endfor %}
+    </select>
+    <button id="scan-btn" class="btn-primary">⟳ SCAN</button>
+  </div>
+  <div id="scan-status" class="hint"></div>
+</section>
+
+<section class="panel">
+  <h2>NEARBY NETWORKS</h2>
+  <div id="network-grid" class="network-grid"></div>
+</section>
+
+<div id="connect-modal" class="modal-overlay hidden">
+  <div class="modal">
+    <h3 id="modal-ssid">SSID</h3>
+    <label>PASSWORD</label>
+    <input type="password" id="modal-password" placeholder="(leave blank if open)">
+    <div class="modal-actions">
+      <button class="btn-ghost" onclick="closeModal()">CANCEL</button>
+      <button class="btn-primary" onclick="doConnect()">CONNECT</button>
+    </div>
+    <div id="modal-status" class="hint"></div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let selectedSsid = null;
+
+async function scan() {
+  const iface = document.getElementById('iface-select').value;
+  const status = document.getElementById('scan-status');
+  const grid = document.getElementById('network-grid');
+  status.textContent = 'Scanning ' + iface + ' ...';
+  grid.innerHTML = '';
+  try {
+    const res = await fetch('/api/wifi/scan?iface=' + encodeURIComponent(iface));
+    const data = await res.json();
+    status.textContent = data.networks.length + ' networks found';
+    data.networks.sort((a,b) => parseInt(b.signal) - parseInt(a.signal));
+    data.networks.forEach(n => {
+      const escapedSsid = n.ssid.replace(/'/g,"\\'");
+      grid.innerHTML += `
+        <div class="net-card ${n.in_use ? 'net-in-use' : ''}" ${n.in_use ? '' : `onclick="openModal('${escapedSsid}')"`}>
+          <div class="net-ssid">${n.ssid}</div>
+          <div class="net-meta">
+            <span>${n.security}</span><span>CH ${n.channel}</span><span>${n.signal}%</span>
+          </div>
+          ${n.in_use ? `<div class="net-badge">CONNECTED</div><button class="btn-danger btn-sm" style="margin-top:8px;" onclick="event.stopPropagation(); disconnectWifi()">DISCONNECT</button>` : ''}
+        </div>`;
+    });
+  } catch (e) {
+    status.textContent = 'Scan failed';
+  }
+}
+
+async function disconnectWifi() {
+  const iface = document.getElementById('iface-select').value;
+  if (!confirm(`Disconnect ${iface} from its current network?`)) return;
+  const status = document.getElementById('scan-status');
+  status.textContent = 'Disconnecting...';
+  const res = await fetch('/api/wifi/disconnect', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({iface})
+  });
+  const data = await res.json();
+  status.textContent = data.ok ? 'Disconnected.' : ('Failed: ' + data.output);
+  scan();
+}
+
+function openModal(ssid) {
+  selectedSsid = ssid;
+  document.getElementById('modal-ssid').textContent = ssid;
+  document.getElementById('modal-password').value = '';
+  document.getElementById('modal-status').textContent = '';
+  document.getElementById('connect-modal').classList.remove('hidden');
+}
+function closeModal() {
+  document.getElementById('connect-modal').classList.add('hidden');
+}
+async function doConnect() {
+  const iface = document.getElementById('iface-select').value;
+  const password = document.getElementById('modal-password').value;
+  const status = document.getElementById('modal-status');
+  status.textContent = 'Connecting...';
+  const res = await fetch('/api/wifi/connect', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({iface, ssid: selectedSsid, password})
+  });
+  const data = await res.json();
+  status.textContent = data.ok ? 'Connected!' : ('Failed: ' + data.output);
+  if (data.ok) setTimeout(() => { closeModal(); scan(); }, 1200);
+}
+
+document.getElementById('scan-btn').addEventListener('click', scan);
+if (document.getElementById('iface-select').options.length) scan();
+</script>
+{% endblock %}

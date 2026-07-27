@@ -1,0 +1,863 @@
+{% extends "base.html" %}
+{% block content %}
+<header class="page-head">
+  <h1>VPN</h1>
+  <div class="page-head-sub">NordVPN &amp; ProtonVPN connection control</div>
+</header>
+
+<section class="panel" id="nordvpn-panel">
+  <h2>NORDVPN</h2>
+  <div class="hotspot-status">
+    <div class="status-ring" id="vpn-ring"><div class="status-ring-icon">◎</div></div>
+    <div>
+      <div class="hotspot-state-text" id="vpn-state">CHECKING...</div>
+      <div class="hint" id="vpn-detail">—</div>
+    </div>
+    <button id="vpn-toggle-btn" class="btn-primary" disabled>...</button>
+  </div>
+  <div id="vpn-login-notice" style="display:none;">
+    <div class="login-error">Not logged in to NordVPN yet.</div>
+
+    <h2 style="margin-top:18px;">RECOMMENDED: LOGIN WITH TOKEN</h2>
+    <div class="hint">
+      1. Go to your Nord Account dashboard at
+      <a href="https://my.nordaccount.com" target="_blank" style="color:var(--cyan);">my.nordaccount.com</a>
+      &nbsp;&rarr; find the NordVPN service &rarr; look for "Set up NordVPN manually" / "Access token" and generate one there.<br>
+      2. Paste it below. This works reliably on a headless Pi, unlike the browser-login flow below it
+      (that one relies on a callback that a headless box without its own browser can't receive).
+    </div>
+    <div class="field-row">
+      <label>ACCESS TOKEN</label>
+      <input type="password" id="vpn-token-input" placeholder="paste your NordVPN access token">
+      <button class="btn-primary" onclick="loginWithToken()">SUBMIT</button>
+    </div>
+    <div id="vpn-token-status" class="hint"></div>
+
+    <h2 style="margin-top:18px;">ALTERNATIVE: BROWSER LOGIN</h2>
+    <div class="hint">May not complete on a headless Pi (no local browser to receive the callback) - the token method above is more reliable. Kept here in case it works for your setup.</div>
+    <button class="btn-ghost" id="vpn-login-btn" onclick="startNordLogin()">LOGIN TO NORDVPN (BROWSER)</button>
+    <div id="vpn-login-box" style="display:none; margin-top:12px;">
+      <div class="hint">Open this link and log in with your NordVPN account:</div>
+      <div class="field-row">
+        <a id="vpn-login-link" href="#" target="_blank" class="btn-primary" style="text-decoration:none; text-align:center;">OPEN LOGIN LINK</a>
+      </div>
+      <div class="hint" id="vpn-login-waiting" style="color: var(--amber);">Waiting for login to complete...</div>
+    </div>
+  </div>
+  <div class="field-row" style="margin-top:14px;">
+    <label>COUNTRY / GROUP</label>
+    <input type="text" id="vpn-country" placeholder="e.g. United_States, or leave blank for fastest">
+    <button class="btn-primary" onclick="vpnConnect()">CONNECT</button>
+  </div>
+  <div id="vpn-connect-status" class="hint"></div>
+</section>
+
+<section class="panel" id="ovpn-panel">
+  <h2>NORDVPN - MANUAL (OPENVPN) <span id="ovpn-count-badge" class="badge">—</span></h2>
+  <div class="hint">Uses standard OpenVPN directly with your NordVPN service credentials (from Nord Account &rarr; Manual setup) - bypasses the nordvpn CLI/daemon entirely, more reliable on a headless Pi.</div>
+
+  <h2 style="margin-top:16px;">SERVICE CREDENTIALS</h2>
+  <div id="ovpn-creds-status-line" class="hint"></div>
+  <div class="field-row">
+    <label>USERNAME</label>
+    <input type="text" id="ovpn-username" placeholder="service username from Nord Account">
+  </div>
+  <div class="field-row">
+    <label>PASSWORD</label>
+    <input type="password" id="ovpn-password" placeholder="service password from Nord Account">
+    <button class="btn-ghost btn-sm" onclick="toggleOvpnPasswordVisibility()" id="ovpn-password-toggle">SHOW</button>
+    <button class="btn-primary" onclick="saveOvpnCredentials()">SAVE</button>
+  </div>
+  <div id="ovpn-creds-status" class="hint"></div>
+
+  <h2 style="margin-top:16px;">SERVER</h2>
+  <div class="hotspot-status">
+    <div class="status-ring" id="ovpn-ring"><div class="status-ring-icon">◎</div></div>
+    <div>
+      <div class="hotspot-state-text" id="ovpn-state">CHECKING...</div>
+      <div class="hint" id="ovpn-detail">—</div>
+    </div>
+    <button id="ovpn-toggle-btn" class="btn-primary">...</button>
+  </div>
+  <div class="field-row" style="margin-top:12px;">
+    <label>COUNTRY</label>
+    <select id="ovpn-server-select"><option>Loading...</option></select>
+    <button class="btn-primary" onclick="switchOvpnCountry()">SWITCH</button>
+    <button class="btn-ghost" onclick="loadOvpnServers()">⟳ REFRESH LIST</button>
+    <button class="btn-ghost" onclick="updateOvpnServers()" id="ovpn-update-btn">⬇ UPDATE SERVER PACKAGE</button>
+  </div>
+  <div id="ovpn-connect-status" class="hint"></div>
+</section>
+
+<section class="panel" id="proton-panel">
+  <h2>PROTONVPN</h2>
+  <div class="hotspot-status">
+    <div class="status-ring" id="proton-ring"><div class="status-ring-icon">◎</div></div>
+    <div>
+      <div class="hotspot-state-text" id="proton-state">CHECKING...</div>
+      <div class="hint" id="proton-detail">—</div>
+    </div>
+    <button id="proton-toggle-btn" class="btn-primary" disabled>...</button>
+  </div>
+  <div id="proton-login-notice" class="login-error" style="display:none;">
+    ProtonVPN isn't initialized yet. Run <code>sudo protonvpn init</code> over SSH on the Pi to log in
+    and configure it (interactive, needs your Proton account) - this can't be done from this web UI for security reasons.
+  </div>
+  <div class="field-row" style="margin-top:14px;">
+    <label>COUNTRY CODE</label>
+    <input type="text" id="proton-country" placeholder="e.g. US, or leave blank for fastest">
+    <button class="btn-primary" onclick="protonConnect()">CONNECT</button>
+  </div>
+  <div id="proton-connect-status" class="hint"></div>
+</section>
+
+<section class="panel" id="proton-ovpn-panel">
+  <h2>PROTONVPN - MANUAL (OPENVPN)</h2>
+  <div class="hint">
+    Uses standard OpenVPN directly with your Proton OpenVPN service credentials and a config file from your
+    Proton Account dashboard (Downloads &rarr; OpenVPN configuration files) - bypasses the protonvpn-cli/daemon
+    entirely, more reliable on a headless Pi.
+  </div>
+
+  <h2 style="margin-top:16px;">SERVICE CREDENTIALS</h2>
+  <div id="proton-ovpn-creds-status-line" class="hint"></div>
+  <div class="field-row">
+    <label>OPENVPN USERNAME</label>
+    <input type="text" id="proton-ovpn-username" placeholder="OpenVPN username from Proton Account">
+  </div>
+  <div class="field-row">
+    <label>OPENVPN PASSWORD</label>
+    <input type="password" id="proton-ovpn-password" placeholder="OpenVPN password from Proton Account">
+    <button class="btn-ghost btn-sm" onclick="toggleProtonOvpnPasswordVisibility()" id="proton-ovpn-password-toggle">SHOW</button>
+    <button class="btn-primary" onclick="saveProtonOvpnCredentials()">SAVE</button>
+  </div>
+  <div id="proton-ovpn-creds-status" class="hint"></div>
+
+  <h2 style="margin-top:16px;">ADD A SERVER</h2>
+  <div class="hint">
+    Proton doesn't publish a public server list like NordVPN does, so add servers manually: download a
+    .ovpn file per country from your Proton Account dashboard, give it a short label (e.g. its country
+    code), and paste the contents below.
+  </div>
+  <div class="field-row">
+    <label>LABEL / COUNTRY CODE</label>
+    <input type="text" id="proton-ovpn-new-code" placeholder="e.g. us, nl, jp" style="max-width:140px;">
+  </div>
+  <div class="field-row" style="align-items: flex-start;">
+    <label>PASTE .OVPN FILE</label>
+    <textarea id="proton-ovpn-config" rows="6" placeholder="Paste the full contents of the .ovpn file you downloaded from your Proton Account dashboard" style="flex:1; min-width:140px; background:#061019; border:1px solid var(--border); color:var(--text); padding:9px 12px; border-radius:6px; font-size:12px; font-family: monospace;"></textarea>
+    <button class="btn-primary" onclick="saveProtonOvpnConfig()">ADD SERVER</button>
+  </div>
+  <div id="proton-ovpn-config-status" class="hint"></div>
+
+  <div class="hint" style="margin-top:10px;">
+    Downloaded a bunch of .ovpn files already? Zip them up and upload the whole batch at once - each file
+    inside becomes its own server, labeled from its filename.
+  </div>
+  <div class="field-row">
+    <label>UPLOAD .ZIP OF SERVERS</label>
+    <input type="file" id="proton-ovpn-zip-input" accept=".zip">
+    <button class="btn-primary" onclick="uploadProtonOvpnZip()">UPLOAD ZIP</button>
+  </div>
+  <div id="proton-ovpn-zip-status" class="hint"></div>
+
+  <h2 style="margin-top:16px;">SERVER <span id="proton-ovpn-count-badge" class="badge">0</span></h2>
+  <div class="hotspot-status">
+    <div class="status-ring" id="proton-ovpn-ring"><div class="status-ring-icon">◎</div></div>
+    <div>
+      <div class="hotspot-state-text" id="proton-ovpn-state">CHECKING...</div>
+      <div class="hint" id="proton-ovpn-detail">—</div>
+    </div>
+    <button id="proton-ovpn-toggle-btn" class="btn-primary">...</button>
+  </div>
+  <div class="field-row" style="margin-top:12px;">
+    <label>COUNTRY</label>
+    <select id="proton-ovpn-server-select"><option>No servers added yet</option></select>
+    <button class="btn-primary" onclick="switchProtonOvpnServer()">SWITCH</button>
+    <button class="btn-danger" onclick="deleteProtonOvpnServer()">REMOVE</button>
+  </div>
+  <div id="proton-ovpn-connect-status" class="hint"></div>
+</section>
+
+<section class="panel" id="wg-panel">
+  <h2>WIREGUARD</h2>
+  <div class="hint">
+    Works with any provider's WireGuard config (Proton, Mullvad, self-hosted, etc) - not tied to Nord or
+    Proton specifically. WireGuard uses a real native tunnel (no proxy bridging), so it's simpler and
+    faster than the manual OpenVPN setups above.
+  </div>
+
+  <h2 style="margin-top:16px;">ADD A SERVER</h2>
+  <div class="field-row">
+    <label>LABEL / COUNTRY CODE</label>
+    <input type="text" id="wg-new-code" placeholder="e.g. us, nl, jp" style="max-width:140px;">
+  </div>
+  <div class="field-row" style="align-items: flex-start;">
+    <label>PASTE .CONF FILE</label>
+    <textarea id="wg-config" rows="6" placeholder="Paste the full contents of a WireGuard .conf file" style="flex:1; min-width:140px; background:#061019; border:1px solid var(--border); color:var(--text); padding:9px 12px; border-radius:6px; font-size:12px; font-family: monospace;"></textarea>
+    <button class="btn-primary" onclick="saveWgConfig()">ADD SERVER</button>
+  </div>
+  <div id="wg-config-status" class="hint"></div>
+
+  <div class="hint" style="margin-top:10px;">
+    Downloaded a bunch of .conf files already? Zip them up and upload the whole batch at once - each file
+    inside becomes its own server, labeled from its filename.
+  </div>
+  <div class="field-row">
+    <label>UPLOAD .ZIP OF SERVERS</label>
+    <input type="file" id="wg-zip-input" accept=".zip">
+    <button class="btn-primary" onclick="uploadWgZip()">UPLOAD ZIP</button>
+  </div>
+  <div id="wg-zip-status" class="hint"></div>
+
+  <h2 style="margin-top:16px;">SERVER <span id="wg-count-badge" class="badge">0</span></h2>
+  <div class="hotspot-status">
+    <div class="status-ring" id="wg-ring"><div class="status-ring-icon">◎</div></div>
+    <div>
+      <div class="hotspot-state-text" id="wg-state">CHECKING...</div>
+      <div class="hint" id="wg-detail">—</div>
+    </div>
+    <button id="wg-toggle-btn" class="btn-primary">...</button>
+  </div>
+  <div class="field-row" style="margin-top:12px;">
+    <label>COUNTRY</label>
+    <select id="wg-server-select"><option>No servers added yet</option></select>
+    <button class="btn-primary" onclick="switchWgServer()">SWITCH</button>
+    <button class="btn-danger" onclick="deleteWgServer()">REMOVE</button>
+  </div>
+  <div id="wg-connect-status" class="hint"></div>
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const vpnConnStatus = { 'nordvpn-panel': false, 'ovpn-panel': false, 'proton-panel': false, 'proton-ovpn-panel': false, 'wg-panel': false };
+
+function reorderVpnPanels() {
+  const container = document.querySelector('main.content');
+  const order = ['nordvpn-panel', 'ovpn-panel', 'proton-panel', 'proton-ovpn-panel', 'wg-panel'];
+  const connectedFirst = order.filter(id => vpnConnStatus[id]).concat(order.filter(id => !vpnConnStatus[id]));
+  connectedFirst.forEach(id => {
+    const el = document.getElementById(id);
+    if (el) container.appendChild(el);
+  });
+}
+
+async function refreshVpn() {
+  vpnConnStatus['nordvpn-panel'] = false;
+  try {
+    const res = await fetch('/api/vpn/status');
+    const data = await res.json();
+
+    const ring = document.getElementById('vpn-ring');
+    const btn = document.getElementById('vpn-toggle-btn');
+    const notice = document.getElementById('vpn-login-notice');
+
+    if (!data.installed) {
+      document.getElementById('vpn-state').textContent = 'NOT INSTALLED';
+      document.getElementById('vpn-detail').textContent = 'NordVPN CLI is not installed yet';
+      btn.style.display = 'none';
+      notice.style.display = 'none';
+      return;
+    }
+
+    if (!data.logged_in) {
+      document.getElementById('vpn-state').textContent = 'NOT LOGGED IN';
+      document.getElementById('vpn-detail').textContent = 'Authenticate via SSH first';
+      btn.style.display = 'none';
+      notice.style.display = 'block';
+      return;
+    }
+    notice.style.display = 'none';
+    btn.style.display = 'inline-block';
+    btn.disabled = false;
+
+    ring.classList.toggle('up', data.connected);
+    document.getElementById('vpn-state').textContent = data.connected ? 'CONNECTED' : 'DISCONNECTED';
+    document.getElementById('vpn-detail').textContent = data.connected
+      ? `${data.country || ''} ${data.server || ''}`.trim()
+      : 'Not currently connected';
+    btn.textContent = data.connected ? 'DISCONNECT' : 'QUICK CONNECT';
+    btn.className = 'btn-primary' + (data.connected ? ' btn-danger' : '');
+    vpnConnStatus['nordvpn-panel'] = !!data.connected;
+  } catch (e) { console.error(e); }
+  finally { reorderVpnPanels(); }
+}
+
+async function loginWithToken() {
+  const input = document.getElementById('vpn-token-input');
+  const token = input.value.trim();
+  const status = document.getElementById('vpn-token-status');
+  if (!token) {
+    status.textContent = 'Enter a token first.';
+    return;
+  }
+  status.textContent = 'Logging in...';
+  const res = await fetch('/api/vpn/login/token', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({token})
+  });
+  const data = await res.json();
+  input.value = '';
+  status.textContent = data.ok ? 'Logged in!' : (data.output || 'Login failed');
+  if (data.ok) setTimeout(refreshVpn, 500);
+}
+
+async function vpnConnect() {
+  const country = document.getElementById('vpn-country').value.trim();
+  const status = document.getElementById('vpn-connect-status');
+  status.textContent = 'Connecting...';
+  const res = await fetch('/api/vpn/connect', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({country})
+  });
+  const data = await res.json();
+  status.textContent = data.output || (data.ok ? 'Connected' : 'Failed');
+  refreshVpn();
+}
+
+document.getElementById('vpn-toggle-btn').addEventListener('click', async () => {
+  const btn = document.getElementById('vpn-toggle-btn');
+  const wasConnected = btn.textContent.includes('DISCONNECT');
+  btn.disabled = true;
+  const res = await fetch(wasConnected ? '/api/vpn/disconnect' : '/api/vpn/connect', {
+    method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({})
+  });
+  setTimeout(refreshVpn, 1000);
+});
+
+let nordLoginPoller = null;
+
+async function startNordLogin() {
+  const btn = document.getElementById('vpn-login-btn');
+  const box = document.getElementById('vpn-login-box');
+  const link = document.getElementById('vpn-login-link');
+  btn.disabled = true;
+  btn.textContent = 'STARTING...';
+  const res = await fetch('/api/vpn/login/start', {method: 'POST'});
+  const data = await res.json();
+  btn.style.display = 'none';
+  if (data.url) {
+    link.href = data.url;
+    box.style.display = 'block';
+    // auto-open it too, since most browsers allow a popup right after a click
+    window.open(data.url, '_blank');
+  } else {
+    document.getElementById('vpn-login-waiting').textContent = 'Could not get a login link. Raw output: ' + (data.raw || '(none)');
+  }
+  if (nordLoginPoller) clearInterval(nordLoginPoller);
+  nordLoginPoller = setInterval(async () => {
+    const r = await fetch('/api/vpn/login/check');
+    const d = await r.json();
+    if (d.logged_in) {
+      clearInterval(nordLoginPoller);
+      document.getElementById('vpn-login-waiting').textContent = 'Logged in! Refreshing...';
+      setTimeout(refreshVpn, 500);
+    }
+  }, 4000);
+}
+
+let ovpnServers = [];
+
+async function loadOvpnServers() {
+  const select = document.getElementById('ovpn-server-select');
+  select.innerHTML = '<option>Loading...</option>';
+  vpnConnStatus['ovpn-panel'] = false;
+  try {
+    const res = await fetch('/api/vpn/openvpn/servers');
+    const data = await res.json();
+    ovpnServers = data.servers || [];
+    document.getElementById('ovpn-count-badge').textContent =
+      ovpnServers.reduce((sum, s) => sum + s.count, 0) + ' servers / ' + ovpnServers.length + ' countries';
+
+    select.innerHTML = '';
+    ovpnServers.forEach(s => {
+      const opt = document.createElement('option');
+      opt.value = s.code;
+      opt.textContent = `${s.name} (${s.count})`;
+      select.appendChild(opt);
+    });
+    if (!ovpnServers.length) {
+      select.innerHTML = '<option value="">No server configs installed - click UPDATE SERVER PACKAGE</option>';
+    }
+
+    const credsLine = document.getElementById('ovpn-creds-status-line');
+    credsLine.textContent = data.has_credentials ? 'Credentials saved.' : 'No credentials saved yet - enter them below.';
+    const usernameInput = document.getElementById('ovpn-username');
+    if (data.username && document.activeElement !== usernameInput) {
+      usernameInput.value = data.username;
+    }
+    const passwordInput = document.getElementById('ovpn-password');
+    if (data.password && document.activeElement !== passwordInput) {
+      passwordInput.value = data.password;
+    }
+
+    const ring = document.getElementById('ovpn-ring');
+    const btn = document.getElementById('ovpn-toggle-btn');
+    ring.classList.toggle('up', data.connected);
+    document.getElementById('ovpn-state').textContent = data.connected ? 'CONNECTED' : 'DISCONNECTED';
+    const connectedName = data.connected_code
+      ? (ovpnServers.find(s => s.code === data.connected_code) || {}).name || data.connected_code
+      : null;
+    document.getElementById('ovpn-detail').textContent = data.connected
+      ? `Tunnel active${connectedName ? ' - ' + connectedName : ''}`
+      : 'Not currently connected';
+    btn.textContent = data.connected ? 'DISCONNECT' : 'CONNECT';
+    btn.className = 'btn-primary' + (data.connected ? ' btn-danger' : '');
+
+    // reflect the actually-connected country in the dropdown, including on
+    // a fresh page load/refresh, not just right after clicking connect/switch
+    if (data.connected_code) {
+      select.value = data.connected_code;
+    }
+    vpnConnStatus['ovpn-panel'] = !!data.connected;
+  } catch (e) {
+    select.innerHTML = '<option>Failed to load</option>';
+  }
+  reorderVpnPanels();
+}
+
+function toggleOvpnPasswordVisibility() {
+  const input = document.getElementById('ovpn-password');
+  const btn = document.getElementById('ovpn-password-toggle');
+  const showing = input.type === 'text';
+  input.type = showing ? 'password' : 'text';
+  btn.textContent = showing ? 'SHOW' : 'HIDE';
+}
+
+async function saveOvpnCredentials() {
+  const username = document.getElementById('ovpn-username').value.trim();
+  const password = document.getElementById('ovpn-password').value.trim();
+  const status = document.getElementById('ovpn-creds-status');
+  if (!username || !password) {
+    status.textContent = 'Enter both username and password.';
+    return;
+  }
+  status.textContent = 'Saving...';
+  const res = await fetch('/api/vpn/openvpn/credentials', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({username, password})
+  });
+  const data = await res.json();
+  status.textContent = data.ok ? 'Saved.' : (data.error || 'Failed');
+  document.getElementById('ovpn-password').value = '';
+  loadOvpnServers();
+}
+
+async function updateOvpnServers() {
+  const btn = document.getElementById('ovpn-update-btn');
+  const status = document.getElementById('ovpn-connect-status');
+  btn.disabled = true;
+  btn.textContent = 'UPDATING...';
+  status.textContent = 'Downloading latest server package (may take a moment)...';
+  const res = await fetch('/api/vpn/openvpn/update', {method: 'POST'});
+  const data = await res.json();
+  status.textContent = data.ok ? `Updated - ${data.count} servers available.` : 'Update failed: ' + (data.output || '');
+  btn.disabled = false;
+  btn.textContent = '⬇ UPDATE SERVER PACKAGE';
+  loadOvpnServers();
+}
+
+async function switchOvpnCountry() {
+  const code = document.getElementById('ovpn-server-select').value;
+  const status = document.getElementById('ovpn-connect-status');
+  if (!code) { status.textContent = 'Pick a country first.'; return; }
+  status.textContent = 'Switching...';
+  const res = await fetch('/api/vpn/openvpn/connect', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({code})
+  });
+  const data = await res.json();
+  status.textContent = data.ok ? `Switched to ${data.server}` : (data.error || 'Switch failed');
+  loadOvpnServers();
+}
+
+document.getElementById('ovpn-toggle-btn').addEventListener('click', async () => {
+  const btn = document.getElementById('ovpn-toggle-btn');
+  const status = document.getElementById('ovpn-connect-status');
+  const wasConnected = btn.textContent.includes('DISCONNECT');
+  btn.disabled = true;
+  if (wasConnected) {
+    await fetch('/api/vpn/openvpn/disconnect', {method: 'POST'});
+  } else {
+    const code = document.getElementById('ovpn-server-select').value;
+    if (!code) { status.textContent = 'Pick a country first.'; btn.disabled = false; return; }
+    status.textContent = 'Connecting...';
+    const res = await fetch('/api/vpn/openvpn/connect', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({code})
+    });
+    const data = await res.json();
+    status.textContent = data.ok ? `Connected via ${data.server}` : (data.error || 'Connect failed');
+  }
+  btn.disabled = false;
+  loadOvpnServers();
+});
+
+async function refreshProton() {
+  vpnConnStatus['proton-panel'] = false;
+  try {
+    const res = await fetch('/api/protonvpn/status');
+    const data = await res.json();
+
+    const ring = document.getElementById('proton-ring');
+    const btn = document.getElementById('proton-toggle-btn');
+    const notice = document.getElementById('proton-login-notice');
+
+    if (!data.installed) {
+      document.getElementById('proton-state').textContent = 'NOT INSTALLED';
+      document.getElementById('proton-detail').textContent = 'ProtonVPN CLI is not installed yet';
+      btn.style.display = 'none';
+      notice.style.display = 'none';
+      return;
+    }
+
+    if (!data.logged_in) {
+      document.getElementById('proton-state').textContent = 'NOT INITIALIZED';
+      document.getElementById('proton-detail').textContent = 'Run protonvpn init via SSH first';
+      btn.style.display = 'none';
+      notice.style.display = 'block';
+      return;
+    }
+    notice.style.display = 'none';
+    btn.style.display = 'inline-block';
+    btn.disabled = false;
+
+    ring.classList.toggle('up', data.connected);
+    document.getElementById('proton-state').textContent = data.connected ? 'CONNECTED' : 'DISCONNECTED';
+    document.getElementById('proton-detail').textContent = data.connected
+      ? `${data.country || ''} ${data.server || ''}`.trim()
+      : 'Not currently connected';
+    btn.textContent = data.connected ? 'DISCONNECT' : 'QUICK CONNECT';
+    btn.className = 'btn-primary' + (data.connected ? ' btn-danger' : '');
+    vpnConnStatus['proton-panel'] = !!data.connected;
+  } catch (e) { console.error(e); }
+  finally { reorderVpnPanels(); }
+}
+
+async function protonConnect() {
+  const country = document.getElementById('proton-country').value.trim();
+  const status = document.getElementById('proton-connect-status');
+  status.textContent = 'Connecting...';
+  const res = await fetch('/api/protonvpn/connect', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({country})
+  });
+  const data = await res.json();
+  status.textContent = data.output || (data.ok ? 'Connected' : 'Failed');
+  refreshProton();
+}
+
+document.getElementById('proton-toggle-btn').addEventListener('click', async () => {
+  const btn = document.getElementById('proton-toggle-btn');
+  const wasConnected = btn.textContent.includes('DISCONNECT');
+  btn.disabled = true;
+  const res = await fetch(wasConnected ? '/api/protonvpn/disconnect' : '/api/protonvpn/connect', {
+    method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({})
+  });
+  setTimeout(refreshProton, 1000);
+});
+
+function toggleProtonOvpnPasswordVisibility() {
+  const input = document.getElementById('proton-ovpn-password');
+  const btn = document.getElementById('proton-ovpn-password-toggle');
+  const showing = input.type === 'text';
+  input.type = showing ? 'password' : 'text';
+  btn.textContent = showing ? 'SHOW' : 'HIDE';
+}
+
+async function saveProtonOvpnCredentials() {
+  const username = document.getElementById('proton-ovpn-username').value.trim();
+  const password = document.getElementById('proton-ovpn-password').value.trim();
+  const status = document.getElementById('proton-ovpn-creds-status');
+  if (!username || !password) {
+    status.textContent = 'Enter both username and password.';
+    return;
+  }
+  status.textContent = 'Saving...';
+  const res = await fetch('/api/protonvpn/openvpn/credentials', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({username, password})
+  });
+  const data = await res.json();
+  status.textContent = data.ok ? 'Saved.' : (data.error || 'Failed');
+  document.getElementById('proton-ovpn-password').value = '';
+  refreshProtonOvpn();
+}
+
+let protonOvpnServers = [];
+
+async function saveProtonOvpnConfig() {
+  const code = document.getElementById('proton-ovpn-new-code').value.trim().toLowerCase();
+  const config = document.getElementById('proton-ovpn-config').value;
+  const status = document.getElementById('proton-ovpn-config-status');
+  if (!code) { status.textContent = 'Give this server a label first (e.g. a country code).'; return; }
+  if (!config.trim()) { status.textContent = 'Paste your .ovpn config first.'; return; }
+  status.textContent = 'Adding...';
+  const res = await fetch('/api/protonvpn/openvpn/config', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({code, config})
+  });
+  const data = await res.json();
+  status.textContent = data.ok ? 'Server added.' : (data.error || 'Failed');
+  if (data.ok) {
+    document.getElementById('proton-ovpn-new-code').value = '';
+    document.getElementById('proton-ovpn-config').value = '';
+  }
+  refreshProtonOvpn();
+}
+
+async function uploadProtonOvpnZip() {
+  const input = document.getElementById('proton-ovpn-zip-input');
+  const status = document.getElementById('proton-ovpn-zip-status');
+  if (!input.files.length) { status.textContent = 'Choose a .zip file first.'; return; }
+  status.textContent = 'Uploading and extracting...';
+  const formData = new FormData();
+  formData.append('file', input.files[0]);
+  try {
+    const res = await fetch('/api/protonvpn/openvpn/upload_zip', {method: 'POST', body: formData});
+    const data = await res.json();
+    status.textContent = data.ok ? `Added ${data.added} server(s).` : (data.error || 'Failed');
+    if (data.ok) input.value = '';
+  } catch (e) {
+    status.textContent = 'Upload failed.';
+  }
+  refreshProtonOvpn();
+}
+
+async function deleteProtonOvpnServer() {
+  const select = document.getElementById('proton-ovpn-server-select');
+  const code = select.value;
+  if (!code) return;
+  if (!confirm(`Remove the saved server "${code}"?`)) return;
+  await fetch('/api/protonvpn/openvpn/config/delete', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({code})
+  });
+  refreshProtonOvpn();
+}
+
+async function switchProtonOvpnServer() {
+  const code = document.getElementById('proton-ovpn-server-select').value;
+  const status = document.getElementById('proton-ovpn-connect-status');
+  if (!code) { status.textContent = 'Add a server first.'; return; }
+  status.textContent = 'Switching...';
+  const res = await fetch('/api/protonvpn/openvpn/connect', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({code})
+  });
+  const data = await res.json();
+  status.textContent = data.ok ? `Connected to ${code}.` : (data.error || 'Switch failed');
+  refreshProtonOvpn();
+}
+
+async function refreshProtonOvpn() {
+  vpnConnStatus['proton-ovpn-panel'] = false;
+  try {
+    const res = await fetch('/api/protonvpn/openvpn/status');
+    const data = await res.json();
+    protonOvpnServers = data.servers || [];
+
+    document.getElementById('proton-ovpn-creds-status-line').textContent = data.has_credentials
+      ? 'Credentials saved.' : 'No credentials saved yet - enter them above.';
+    document.getElementById('proton-ovpn-count-badge').textContent = protonOvpnServers.length;
+
+    const select = document.getElementById('proton-ovpn-server-select');
+    if (document.activeElement !== select) {
+      select.innerHTML = '';
+      if (!protonOvpnServers.length) {
+        select.innerHTML = '<option value="">No servers added yet</option>';
+      } else {
+        protonOvpnServers.forEach(s => {
+          const opt = document.createElement('option');
+          opt.value = s.code;
+          opt.textContent = s.name + (s.code === data.connected_code ? ' (connected)' : '');
+          select.appendChild(opt);
+        });
+        if (data.connected_code) select.value = data.connected_code;
+      }
+    }
+
+    const usernameInput = document.getElementById('proton-ovpn-username');
+    if (data.username && document.activeElement !== usernameInput) usernameInput.value = data.username;
+    const passwordInput = document.getElementById('proton-ovpn-password');
+    if (data.password && document.activeElement !== passwordInput) passwordInput.value = data.password;
+
+    const ring = document.getElementById('proton-ovpn-ring');
+    const btn = document.getElementById('proton-ovpn-toggle-btn');
+    ring.classList.toggle('up', data.connected);
+    document.getElementById('proton-ovpn-state').textContent = data.connected ? 'CONNECTED' : 'DISCONNECTED';
+    const connectedName = data.connected_code
+      ? (protonOvpnServers.find(s => s.code === data.connected_code) || {}).name || data.connected_code
+      : null;
+    document.getElementById('proton-ovpn-detail').textContent = data.connected
+      ? `Tunnel active${connectedName ? ' - ' + connectedName : ''}`
+      : 'Not currently connected';
+    btn.textContent = data.connected ? 'DISCONNECT' : 'CONNECT';
+    btn.className = 'btn-primary' + (data.connected ? ' btn-danger' : '');
+    vpnConnStatus['proton-ovpn-panel'] = !!data.connected;
+  } catch (e) { console.error(e); }
+  reorderVpnPanels();
+}
+
+document.getElementById('proton-ovpn-toggle-btn').addEventListener('click', async () => {
+  const btn = document.getElementById('proton-ovpn-toggle-btn');
+  const status = document.getElementById('proton-ovpn-connect-status');
+  const wasConnected = btn.textContent.includes('DISCONNECT');
+  btn.disabled = true;
+  if (wasConnected) {
+    await fetch('/api/protonvpn/openvpn/disconnect', {method: 'POST'});
+  } else {
+    const code = document.getElementById('proton-ovpn-server-select').value;
+    if (!code) { status.textContent = 'Add a server first.'; btn.disabled = false; return; }
+    status.textContent = 'Connecting...';
+    const res = await fetch('/api/protonvpn/openvpn/connect', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({code})
+    });
+    const data = await res.json();
+    status.textContent = data.ok ? `Connected to ${code}.` : (data.error || 'Connect failed');
+  }
+  btn.disabled = false;
+  refreshProtonOvpn();
+});
+
+let wgServers = [];
+
+async function saveWgConfig() {
+  const code = document.getElementById('wg-new-code').value.trim().toLowerCase();
+  const config = document.getElementById('wg-config').value;
+  const status = document.getElementById('wg-config-status');
+  if (!code) { status.textContent = 'Give this server a label first (e.g. a country code).'; return; }
+  if (!config.trim()) { status.textContent = 'Paste your .conf file first.'; return; }
+  status.textContent = 'Adding...';
+  const res = await fetch('/api/wireguard/config', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({code, config})
+  });
+  const data = await res.json();
+  status.textContent = data.ok ? 'Server added.' : (data.error || 'Failed');
+  if (data.ok) {
+    document.getElementById('wg-new-code').value = '';
+    document.getElementById('wg-config').value = '';
+  }
+  refreshWg();
+}
+
+async function uploadWgZip() {
+  const input = document.getElementById('wg-zip-input');
+  const status = document.getElementById('wg-zip-status');
+  if (!input.files.length) { status.textContent = 'Choose a .zip file first.'; return; }
+  status.textContent = 'Uploading and extracting...';
+  const formData = new FormData();
+  formData.append('file', input.files[0]);
+  try {
+    const res = await fetch('/api/wireguard/upload_zip', {method: 'POST', body: formData});
+    const data = await res.json();
+    status.textContent = data.ok ? `Added ${data.added} server(s).` : (data.error || 'Failed');
+    if (data.ok) input.value = '';
+  } catch (e) {
+    status.textContent = 'Upload failed.';
+  }
+  refreshWg();
+}
+
+async function deleteWgServer() {
+  const code = document.getElementById('wg-server-select').value;
+  if (!code) return;
+  if (!confirm(`Remove the saved server "${code}"?`)) return;
+  await fetch('/api/wireguard/config/delete', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({code})
+  });
+  refreshWg();
+}
+
+async function switchWgServer() {
+  const code = document.getElementById('wg-server-select').value;
+  const status = document.getElementById('wg-connect-status');
+  if (!code) { status.textContent = 'Add a server first.'; return; }
+  status.textContent = 'Switching...';
+  const res = await fetch('/api/wireguard/connect', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({code})
+  });
+  const data = await res.json();
+  status.textContent = data.ok ? `Connected to ${code}.` : (data.error || 'Switch failed');
+  refreshWg();
+}
+
+async function refreshWg() {
+  vpnConnStatus['wg-panel'] = false;
+  try {
+    const res = await fetch('/api/wireguard/status');
+    const data = await res.json();
+    wgServers = data.servers || [];
+
+    document.getElementById('wg-count-badge').textContent = wgServers.length;
+
+    const select = document.getElementById('wg-server-select');
+    if (document.activeElement !== select) {
+      select.innerHTML = '';
+      if (!wgServers.length) {
+        select.innerHTML = '<option value="">No servers added yet</option>';
+      } else {
+        wgServers.forEach(s => {
+          const opt = document.createElement('option');
+          opt.value = s.code;
+          opt.textContent = s.name + (s.code === data.connected_code ? ' (connected)' : '');
+          select.appendChild(opt);
+        });
+        if (data.connected_code) select.value = data.connected_code;
+      }
+    }
+
+    const ring = document.getElementById('wg-ring');
+    const btn = document.getElementById('wg-toggle-btn');
+    ring.classList.toggle('up', data.connected);
+    document.getElementById('wg-state').textContent = !data.installed
+      ? 'NOT INSTALLED YET'
+      : (data.connected ? 'CONNECTED' : 'DISCONNECTED');
+    const connectedName = data.connected_code
+      ? (wgServers.find(s => s.code === data.connected_code) || {}).name || data.connected_code
+      : null;
+    document.getElementById('wg-detail').textContent = data.connected
+      ? `Tunnel active${connectedName ? ' - ' + connectedName : ''}`
+      : 'Not currently connected';
+    btn.textContent = data.connected ? 'DISCONNECT' : 'CONNECT';
+    btn.className = 'btn-primary' + (data.connected ? ' btn-danger' : '');
+    vpnConnStatus['wg-panel'] = !!data.connected;
+  } catch (e) { console.error(e); }
+  reorderVpnPanels();
+}
+
+document.getElementById('wg-toggle-btn').addEventListener('click', async () => {
+  const btn = document.getElementById('wg-toggle-btn');
+  const status = document.getElementById('wg-connect-status');
+  const wasConnected = btn.textContent.includes('DISCONNECT');
+  btn.disabled = true;
+  if (wasConnected) {
+    await fetch('/api/wireguard/disconnect', {method: 'POST'});
+  } else {
+    const code = document.getElementById('wg-server-select').value;
+    if (!code) { status.textContent = 'Add a server first.'; btn.disabled = false; return; }
+    status.textContent = 'Connecting (installing WireGuard on first use can take a moment)...';
+    const res = await fetch('/api/wireguard/connect', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({code})
+    });
+    const data = await res.json();
+    status.textContent = data.ok ? `Connected to ${code}.` : (data.error || 'Connect failed');
+  }
+  btn.disabled = false;
+  refreshWg();
+});
+
+refreshVpn();
+refreshProton();
+refreshProtonOvpn();
+refreshWg();
+loadOvpnServers();
+setInterval(() => { refreshVpn(); refreshProton(); refreshProtonOvpn(); refreshWg(); }, 5000);
+</script>
+{% endblock %}

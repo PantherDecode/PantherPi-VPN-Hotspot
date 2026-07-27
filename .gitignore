@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+.DS_Store
+
+# Never commit real config/credentials
+config.json
+*.log

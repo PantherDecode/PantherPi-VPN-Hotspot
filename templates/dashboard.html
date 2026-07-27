@@ -1,0 +1,469 @@
+{% extends "base.html" %}
+{% block content %}
+<header class="page-head">
+  <h1>SYSTEM OVERVIEW</h1>
+  <div class="page-head-sub">Live telemetry · <span id="clock"></span> · EXTERNAL IP <span id="external-ip" class="external-ip">—</span> (<span id="external-country" class="external-ip">—</span>) <button class="btn-refresh" id="external-refresh-btn" title="Refresh external IP/country" onclick="loadExternalIp(true)">⟳</button></div>
+</header>
+
+<section class="gauge-row">
+  <div class="gauge-card">
+    <svg viewBox="0 0 120 120" class="gauge">
+      <circle cx="60" cy="60" r="52" class="gauge-track"/>
+      <circle cx="60" cy="60" r="52" class="gauge-fill" id="gauge-cpu" transform="rotate(-90 60 60)"/>
+    </svg>
+    <div class="gauge-label">
+      <div class="gauge-value" id="val-cpu">--</div>
+      <div class="gauge-name">CPU TEMP °C</div>
+    </div>
+  </div>
+
+  <div class="gauge-card">
+    <svg viewBox="0 0 120 120" class="gauge">
+      <circle cx="60" cy="60" r="52" class="gauge-track"/>
+      <circle cx="60" cy="60" r="52" class="gauge-fill gauge-fill-alt" id="gauge-mem" transform="rotate(-90 60 60)"/>
+    </svg>
+    <div class="gauge-label">
+      <div class="gauge-value" id="val-mem">--</div>
+      <div class="gauge-name">MEMORY %</div>
+    </div>
+  </div>
+
+  <div class="gauge-card status-card">
+    <div class="status-ring {{ 'up' if False else '' }}" id="ap-ring">
+      <div class="status-ring-icon">◎</div>
+    </div>
+    <div class="gauge-label">
+      <div class="gauge-value" id="val-ap-state">--</div>
+      <div class="gauge-name" id="val-ap-name">HOTSPOT</div>
+    </div>
+  </div>
+
+  <div class="gauge-card status-card">
+    <div class="vpn-lock-big" id="vpn-lock-big" title="VPN security status">
+      <div class="vpn-lock-big-icon" id="vpn-lock-big-icon">🔒</div>
+    </div>
+    <div class="gauge-label">
+      <div class="gauge-value" id="vpn-lock-state">--</div>
+      <div class="gauge-name">VPN LOCK</div>
+    </div>
+  </div>
+</section>
+
+<section class="panel">
+  <h2>NETWORK FLOW</h2>
+  <div id="flowchart" class="flowchart"></div>
+</section>
+
+<section class="panel">
+  <h2>NETWORK INTERFACES</h2>
+  <div id="iface-grid" class="iface-grid"></div>
+</section>
+
+<section class="panel">
+  <h2>CONNECTED CLIENTS <span id="client-count" class="badge">0</span></h2>
+  <table class="data-table" id="client-table">
+    <thead><tr><th>HOSTNAME</th><th>MAC ADDRESS</th><th>SIGNAL</th><th>STATUS</th><th></th></tr></thead>
+    <tbody></tbody>
+  </table>
+  <div class="empty-state" id="client-empty">No devices connected to hotspot</div>
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function setClock() {
+  document.getElementById('clock').textContent = new Date().toLocaleTimeString();
+}
+setInterval(setClock, 1000);
+setClock();
+
+function circumference(r) { return 2 * Math.PI * r; }
+const R = 52, C = circumference(R);
+let extIp = null, extCountry = null;
+let extPerIface = {};
+
+function setGauge(el, pct, max) {
+  const frac = Math.max(0, Math.min(1, pct / max));
+  el.style.strokeDasharray = C;
+  el.style.strokeDashoffset = C * (1 - frac);
+}
+
+function renderFlowchart(data) {
+  const el = document.getElementById('flowchart');
+  const isTunnel = data.tunnel_interface && data.uplink_interface === data.tunnel_interface;
+  const uplinkLabel = data.uplink_interface || '?';
+  const uplinkSub = isTunnel ? 'VPN TUNNEL' : (data.tunnel_interface ? 'PLAIN (tunnel up but unused)' : 'PLAIN');
+  const uplinkCls = isTunnel ? 'flow-secure' : 'flow-insecure';
+  const apUp = data.hostapd_active;
+  const clientCount = (data.ap_clients || []).length;
+
+  // when the uplink is a VPN tunnel, show the physical carrier underneath it
+  // too (e.g. wlan0 -> tun0), not just the tunnel alone
+  const carrierNode = (isTunnel && data.tunnel_carrier) ? `
+    <div class="flow-node flow-secure">
+      <div class="flow-icon">📶</div>
+      <div class="flow-title">${data.tunnel_carrier}</div>
+      <div class="flow-sub">CARRIER LINK</div>
+    </div>
+    <div class="flow-arrow">&rarr;</div>
+  ` : '';
+
+  el.innerHTML = `
+    <div class="flow-node flow-internet">
+      <div class="flow-icon">🌐</div>
+      <div class="flow-title">INTERNET</div>
+    </div>
+    <div class="flow-arrow">&rarr;</div>
+    ${carrierNode}
+    <div class="flow-node ${uplinkCls}">
+      <div class="flow-icon">${isTunnel ? '🔒' : '🔗'}</div>
+      <div class="flow-title">${uplinkLabel}</div>
+      <div class="flow-sub">${uplinkSub}</div>
+    </div>
+    <div class="flow-arrow">&rarr;</div>
+    <div class="flow-node flow-pi">
+      <div class="flow-icon">🐾</div>
+      <div class="flow-title">PANTHERPI</div>
+      <div class="flow-sub">NAT + Firewall</div>
+    </div>
+    <div class="flow-arrow">&rarr;</div>
+    <div class="flow-node ${apUp ? 'flow-secure' : 'flow-insecure'}">
+      <div class="flow-icon">📡</div>
+      <div class="flow-title">${data.ap_interface || '?'}</div>
+      <div class="flow-sub">${apUp ? (data.ap_ssid || 'HOTSPOT') : 'OFFLINE'}</div>
+    </div>
+    <div class="flow-arrow">&rarr;</div>
+    <div class="flow-node flow-clients">
+      <div class="flow-icon">📱</div>
+      <div class="flow-title">${clientCount}</div>
+      <div class="flow-sub">CLIENT${clientCount === 1 ? '' : 'S'}</div>
+    </div>
+  `;
+}
+
+async function refresh() {
+  try {
+    const res = await fetch('/api/status');
+    const data = await res.json();
+
+    setGauge(document.getElementById('gauge-cpu'), data.cpu_temp || 0, 85);
+    document.getElementById('val-cpu').textContent = data.cpu_temp !== null ? data.cpu_temp.toFixed(1) : '--';
+
+    setGauge(document.getElementById('gauge-mem'), data.mem_usage || 0, 100);
+    document.getElementById('val-mem').textContent = data.mem_usage !== null ? data.mem_usage.toFixed(0) : '--';
+
+    const ring = document.getElementById('ap-ring');
+    ring.classList.toggle('up', data.hostapd_active);
+    document.getElementById('val-ap-state').textContent = data.hostapd_active ? 'ONLINE' : 'OFFLINE';
+    document.getElementById('val-ap-name').textContent = data.ap_ssid || 'HOTSPOT';
+
+    const lockBig = document.getElementById('vpn-lock-big');
+    const lockIcon = document.getElementById('vpn-lock-big-icon');
+    lockIcon.textContent = data.vpn_secure ? '🔒' : '🔓';
+    lockBig.className = 'vpn-lock-big' + (data.vpn_secure ? ' secure' : ' insecure');
+    lockBig.title = data.vpn_secure
+      ? `Secure - hotspot traffic is routed through VPN tunnel (${data.tunnel_interface})`
+      : (data.hostapd_active ? 'Not secure - hotspot traffic is NOT going through a VPN tunnel' : 'Hotspot is offline');
+    document.getElementById('vpn-lock-state').textContent = data.vpn_secure ? 'SECURE' : 'UNLOCKED';
+
+    renderFlowchart(data);
+
+    const grid = document.getElementById('iface-grid');
+    const seenIfaces = new Set();
+    data.interfaces.forEach(i => {
+      seenIfaces.add(i.name);
+      const up = i.state === 'UP';
+      const roleTag = i.role ? `<div class="iface-role">${i.role}</div>` : '';
+      const netTag = i.network ? `<div class="iface-net">${i.network}</div>` : '';
+      const ext = extPerIface[i.name];
+      const extRow = ext
+        ? `<div class="iface-ext">${ext.ip || 'N/A'} ${ext.country ? '(' + ext.country + ')' : ''} <button class="btn-refresh btn-refresh-sm" title="Refresh" onclick="refreshIfaceExternal('${i.name}')">⟳</button></div>`
+        : `<div class="iface-ext">checking external IP... <button class="btn-refresh btn-refresh-sm" title="Refresh" onclick="refreshIfaceExternal('${i.name}')">⟳</button></div>`;
+      const isTunnel = data.tunnel_interface === i.name;
+      const isApIface = data.ap_interface === i.name;
+      // Country switching only makes sense for backends that keep a saved
+      // server library to switch between (Nord/Proton manual OpenVPN on
+      // tun*, or manually-added WireGuard configs on wg0) - other tunnel
+      // types (NordLynx, ProtonVPN's own CLI) don't have that, so don't show
+      // a control that would silently do nothing useful for them.
+      const switchableProvider = i.name === 'wg0' && (data.tunnel_provider || '').startsWith('WireGuard')
+        ? 'wireguard'
+        : (i.name.startsWith('tun') ? data.tunnel_ovpn_provider : null);
+      const isCountrySwitchable = isTunnel && !!switchableProvider;
+      const cardId = `iface-card-${i.name}`;
+      let card = document.getElementById(cardId);
+
+      if (!card) {
+        // brand-new interface card - build it from scratch, including the
+        // country-switch <select> if applicable. We never touch this
+        // <select> node again on later refreshes (see below) so an open
+        // dropdown doesn't get slammed shut mid-pick by the 3s poll.
+        card = document.createElement('div');
+        card.id = cardId;
+        const switchRow = isCountrySwitchable ? `
+          <div class="iface-switch-country">
+            <input type="text" id="tun-country-input-${i.name}" class="tun-country-select" list="tun-country-list-${i.name}" placeholder="Type to search (e.g. Ita)" autocomplete="off">
+            <datalist id="tun-country-list-${i.name}"></datalist>
+            <button class="btn-ghost btn-sm" onclick="switchTunnelCountry('${i.name}')">SWITCH</button>
+          </div>
+          <div class="hint tun-switch-status" id="tun-switch-status-${i.name}"></div>` : '';
+        card.innerHTML = `
+          <div class="iface-name">${i.name}</div>
+          <div class="iface-provider-slot"></div>
+          <div class="iface-state"></div>
+          <div class="iface-role-slot"></div>
+          <div class="iface-net-slot"></div>
+          <div class="iface-ip"></div>
+          <div class="iface-ext-slot"></div>
+          <div class="iface-speedtest-slot"></div>
+          ${switchRow}`;
+        grid.appendChild(card);
+        if (isCountrySwitchable) loadTunnelCountryOptions(i.name, false, switchableProvider);
+      }
+
+      card.className = `iface-card ${up ? 'iface-up' : 'iface-down'}${isTunnel ? ' iface-tunnel' : ''}`;
+      card.querySelector('.iface-state').textContent = i.state;
+      const providerBits = [];
+      if (isTunnel && data.tunnel_provider) {
+        providerBits.push(`<div class="iface-provider">${data.tunnel_provider}</div>`);
+      }
+      card.querySelector('.iface-provider-slot').innerHTML = providerBits.join('');
+      card.querySelector('.iface-role-slot').innerHTML = roleTag;
+      card.querySelector('.iface-net-slot').innerHTML = netTag;
+      card.querySelector('.iface-ip').textContent = i.ip || '—';
+      card.querySelector('.iface-ext-slot').innerHTML = extRow;
+
+      // AP-role interfaces (the hotspot's own LAN-facing side) have no
+      // upstream internet route of their own to test - don't offer a button
+      // that can only ever fail, show why instead. Built once per role so
+      // clicking SPEED TEST / its in-flight state isn't wiped every 3s poll.
+      const speedtestSlot = card.querySelector('.iface-speedtest-slot');
+      const speedtestRoleNow = i.role || '';
+      if (speedtestSlot.dataset.built !== '1' || speedtestSlot.dataset.role !== speedtestRoleNow) {
+        speedtestSlot.dataset.built = '1';
+        speedtestSlot.dataset.role = speedtestRoleNow;
+        speedtestSlot.innerHTML = i.role === 'AP' ? `
+          <div class="iface-speedtest">
+            <span class="hint">Hotspot-facing interface - no direct internet route to test. Try wlan0/tun0 instead.</span>
+          </div>` : `
+          <div class="iface-speedtest">
+            <button class="btn-ghost btn-sm" id="speedtest-btn-${i.name}" onclick="runSpeedTest('${i.name}')">⚡ SPEED TEST</button>
+            <span class="iface-speedtest-result" id="speedtest-result-${i.name}"></span>
+          </div>`;
+      }
+
+      // if this interface just became (or stopped being) the active tunnel,
+      // add/remove the switch-country control - but only in that case, so
+      // the control's own <select> is otherwise left completely alone
+      const hasSwitchRow = !!card.querySelector('.iface-switch-country');
+      if (isCountrySwitchable && !hasSwitchRow) {
+        const div = document.createElement('div');
+        div.className = 'iface-switch-country';
+        div.innerHTML = `
+          <input type="text" id="tun-country-input-${i.name}" class="tun-country-select" list="tun-country-list-${i.name}" placeholder="Type to search (e.g. Ita)" autocomplete="off">
+          <datalist id="tun-country-list-${i.name}"></datalist>
+          <button class="btn-ghost btn-sm" onclick="switchTunnelCountry('${i.name}')">SWITCH</button>`;
+        card.appendChild(div);
+        const statusDiv = document.createElement('div');
+        statusDiv.className = 'hint tun-switch-status';
+        statusDiv.id = `tun-switch-status-${i.name}`;
+        card.appendChild(statusDiv);
+        loadTunnelCountryOptions(i.name, false, switchableProvider);
+      } else if (isCountrySwitchable && hasSwitchRow && tunProviderByIface[i.name] !== switchableProvider) {
+        // the same interface switched which backend owns it (e.g. Nord's
+        // manual OpenVPN swapped for Proton's) - force a fresh server-list
+        // fetch from the now-correct provider's API
+        tunSelectedCountry[i.name] = null;
+        loadTunnelCountryOptions(i.name, true, switchableProvider);
+      } else if (!isCountrySwitchable && hasSwitchRow) {
+        card.querySelector('.iface-switch-country').remove();
+        const statusEl = card.querySelector('.tun-switch-status');
+        if (statusEl) statusEl.remove();
+      }
+    });
+    // drop cards for interfaces that disappeared (e.g. a dongle unplugged)
+    grid.querySelectorAll('.iface-card').forEach(card => {
+      const name = card.id.replace('iface-card-', '');
+      if (!seenIfaces.has(name)) card.remove();
+    });
+    const tbody = document.querySelector('#client-table tbody');
+    tbody.innerHTML = '';
+    document.getElementById('client-count').textContent = data.ap_clients.length;
+    document.getElementById('client-empty').style.display = data.ap_clients.length ? 'none' : 'block';
+    data.ap_clients.forEach(c => {
+      const statusTag = c.blocked ? '<span class="badge badge-danger">BLOCKED</span>' : '<span class="badge badge-ok">ACTIVE</span>';
+      const btn = c.blocked
+        ? `<button class="btn-ghost btn-sm" onclick="unblockClient('${c.mac}')">UNBLOCK</button>`
+        : `<button class="btn-danger btn-sm" onclick="blockClient('${c.mac}')">BLOCK</button>`;
+      tbody.innerHTML += `<tr><td>${c.hostname || 'Unknown'}</td><td>${c.mac}</td><td>${c.signal !== null ? c.signal + ' dBm' : '—'}</td><td>${statusTag}</td><td>${btn}</td></tr>`;
+    });
+  } catch (e) { console.error(e); }
+}
+
+async function blockClient(mac) {
+  if (!confirm('Block ' + mac + ' from the hotspot?')) return;
+  await fetch('/api/client/block', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({mac})
+  });
+  refresh();
+}
+
+async function unblockClient(mac) {
+  await fetch('/api/client/unblock', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({mac})
+  });
+  refresh();
+}
+
+async function loadExternalIp(force) {
+  const btn = document.getElementById('external-refresh-btn');
+  if (btn) btn.classList.add('spinning');
+  try {
+    const res = await fetch('/api/status' + (force ? '?force=1' : ''));
+    const data = await res.json();
+    extIp = data.external_ip;
+    extCountry = data.external_country;
+    document.getElementById('external-ip').textContent = extIp || 'UNAVAILABLE';
+    document.getElementById('external-country').textContent = extCountry || '—';
+  } catch (e) { console.error(e); }
+  if (btn) btn.classList.remove('spinning');
+}
+
+async function loadPerIfaceExternal(force) {
+  try {
+    const res = await fetch('/api/interfaces/external' + (force ? '?force=1' : ''));
+    extPerIface = await res.json();
+  } catch (e) { console.error(e); }
+}
+
+async function refreshIfaceExternal(name) {
+  try {
+    const res = await fetch(`/api/interfaces/external?iface=${encodeURIComponent(name)}&force=1`);
+    const data = await res.json();
+    Object.assign(extPerIface, data);
+    refresh();
+  } catch (e) { console.error(e); }
+}
+
+async function runSpeedTest(name) {
+  const btn = document.getElementById(`speedtest-btn-${name}`);
+  const result = document.getElementById(`speedtest-result-${name}`);
+  if (!btn || !result) return;
+  btn.disabled = true;
+  btn.textContent = 'TESTING...';
+  result.textContent = '';
+  try {
+    const res = await fetch(`/api/interfaces/speedtest?iface=${encodeURIComponent(name)}`);
+    const data = await res.json();
+    result.textContent = data.ok ? `${data.mbps} Mbps ↓` : (data.error || 'Failed');
+    result.className = 'iface-speedtest-result' + (data.ok ? '' : ' iface-speedtest-error');
+  } catch (e) {
+    result.textContent = 'Failed';
+    result.className = 'iface-speedtest-result iface-speedtest-error';
+  }
+  btn.disabled = false;
+  btn.textContent = '⚡ SPEED TEST';
+}
+
+let ovpnServersCache = null, ovpnServersCacheTs = 0;
+const tunSelectedCountry = {};
+const tunProviderByIface = {};
+
+function tunnelOvpnUrls(provider) {
+  if (provider === 'proton') return { list: '/api/protonvpn/openvpn/status', connect: '/api/protonvpn/openvpn/connect' };
+  if (provider === 'wireguard') return { list: '/api/wireguard/status', connect: '/api/wireguard/connect' };
+  return { list: '/api/vpn/openvpn/servers', connect: '/api/vpn/openvpn/connect' };
+}
+
+function findTunnelCountryCode(typed) {
+  const servers = (ovpnServersCache && ovpnServersCache.servers) || [];
+  const t = typed.trim().toLowerCase();
+  if (!t) return null;
+  let match = servers.find(s => s.name.toLowerCase() === t) || servers.find(s => s.code.toLowerCase() === t);
+  if (!match) match = servers.find(s => s.name.toLowerCase().startsWith(t));
+  if (!match) match = servers.find(s => s.name.toLowerCase().includes(t));
+  return match || null;
+}
+
+async function loadTunnelCountryOptions(iface, force, provider) {
+  const input = document.getElementById(`tun-country-input-${iface}`);
+  const list = document.getElementById(`tun-country-list-${iface}`);
+  if (!input || !list || !provider) return;
+  // Never touch the input/datalist while the user is actively typing/focused
+  // in it - a rebuild mid-search would blow away what they've typed so far.
+  if (document.activeElement === input) return;
+
+  tunProviderByIface[iface] = provider;
+  const now = Date.now();
+  let fetchedFresh = false;
+  if (force || !ovpnServersCache || now - ovpnServersCacheTs > 15000) {
+    try {
+      const res = await fetch(tunnelOvpnUrls(provider).list);
+      ovpnServersCache = await res.json();
+      ovpnServersCacheTs = now;
+      fetchedFresh = true;
+    } catch (e) { console.error(e); return; }
+  }
+
+  // Only rebuild on first render or when we actually just fetched new data -
+  // not on every 3s poll tick, or the field effectively resets constantly.
+  const alreadyBuilt = input.dataset.built === '1';
+  if (alreadyBuilt && !fetchedFresh) return;
+
+  const data = ovpnServersCache;
+  const servers = data.servers || [];
+  if (!servers.length) {
+    input.placeholder = provider === 'proton'
+      ? 'No ProtonVPN servers added yet - set them up on the VPN page'
+      : 'No OpenVPN server list - set it up on the VPN page';
+    return;
+  }
+  if (!tunSelectedCountry[iface]) {
+    tunSelectedCountry[iface] = data.connected_code || servers[0].code;
+  }
+  list.innerHTML = '';
+  servers.forEach(s => {
+    const opt = document.createElement('option');
+    opt.value = s.name;
+    opt.label = (s.count ? `${s.count} servers` : '') + (s.code === data.connected_code ? ' - connected' : '');
+    list.appendChild(opt);
+  });
+  const selected = servers.find(s => s.code === tunSelectedCountry[iface]);
+  input.value = selected ? selected.name : '';
+  input.dataset.built = '1';
+}
+
+async function switchTunnelCountry(iface) {
+  const input = document.getElementById(`tun-country-input-${iface}`);
+  const status = document.getElementById(`tun-switch-status-${iface}`);
+  const provider = tunProviderByIface[iface];
+  if (!input || !provider) return;
+  const match = findTunnelCountryCode(input.value);
+  if (!match) {
+    if (status) status.textContent = `No country matching "${input.value}" - try a different search.`;
+    return;
+  }
+  const code = match.code;
+  tunSelectedCountry[iface] = code;
+  input.disabled = true;
+  if (status) status.textContent = `Switching to ${match.name}...`;
+  try {
+    await fetch(tunnelOvpnUrls(provider).connect, {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({code})
+    });
+    if (status) status.textContent = `Switched to ${match.name}.`;
+  } catch (e) { console.error(e); }
+  ovpnServersCache = null;
+  input.disabled = false;
+  refresh();
+}
+
+refresh();
+loadExternalIp();
+loadPerIfaceExternal();
+setInterval(refresh, 3000);
+</script>
+{% endblock %}

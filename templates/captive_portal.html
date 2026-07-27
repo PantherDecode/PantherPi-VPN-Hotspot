@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ app_name }} — Network Access</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body class="login-body">
+<div class="scanlines"></div>
+<div class="grid-bg"></div>
+
+<div class="login-wrap">
+  <div class="login-ring">
+    <div class="login-ring-inner"><span class="pulse-dot"></span></div>
+  </div>
+  <h1 class="login-title">{{ app_name }}</h1>
+  <div class="login-sub">{{ 'CONNECTED' if success else 'SIGN IN TO CONNECT' }}</div>
+
+  <div class="panel" style="margin: 16px 0; text-align: left;">
+    <div class="hint">YOU WILL BROWSE AS</div>
+    <div class="field-row"><label>EXTERNAL IP</label><div>{{ ext_ip or 'Unavailable' }}</div></div>
+    <div class="field-row"><label>COUNTRY</label><div>{{ ext_country }}</div></div>
+  </div>
+
+  {% if success %}
+  <div class="login-hint">You're connected — you can close this page and start browsing.</div>
+  {% else %}
+  <form method="post" action="/captive-portal/login" class="login-form">
+    {% if error %}<div class="login-error">{{ error }}</div>{% endif %}
+    <label>USERNAME</label>
+    <input type="text" name="username" autocomplete="username" required autofocus>
+    <label>PASSWORD</label>
+    <input type="password" name="password" autocomplete="current-password" required>
+    <button type="submit">CONNECT</button>
+  </form>
+  <div class="login-hint">Ask the network owner for the guest username and password</div>
+  {% endif %}
+</div>
+</body>
+</html>
