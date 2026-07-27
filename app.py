@@ -815,16 +815,23 @@ _last_failover_uplink = "__unset__"
 
 def apply_uplink_failover(cfg):
     """Automatically prefers interfaces earlier in cfg['uplink_priority']
-    (default eth0, then wlan0) whenever they're up, falling back down the
-    list as they drop and back up again automatically when a higher-
-    priority interface returns - both for the hotspot's own forwarded
-    traffic (uplink_interface / apply_uplink_routing) and for whichever VPN
-    tunnel is actually connecting out (via the main routing table's default
-    route metric)."""
+    (default just eth0) whenever they're up, falling back down the list as
+    they drop and back up again automatically when a higher-priority
+    interface returns.
+
+    This ONLY affects the Pi's own main routing table (default route
+    metrics) - i.e. which physical interface the Pi's own locally-
+    originated traffic prefers, which is what a VPN/proxy tunnel client
+    needs in order to actually dial out and connect in the first place.
+    It deliberately never touches cfg['uplink_interface'] (the hotspot's
+    own forwarded-traffic uplink) - that stays whatever was explicitly
+    picked on the Hotspot page, which only offers tunnel interfaces. A
+    physical interface reconnecting must never silently become the
+    hotspot's internet source in the background."""
     global _last_failover_uplink
     if not cfg.get("uplink_auto_failover", True):
         return
-    priority = cfg.get("uplink_priority") or ["eth0", "wlan0"]
+    priority = cfg.get("uplink_priority") or ["eth0"]
     chosen = next((iface for iface in priority if is_iface_up(iface)), None)
     if not chosen or chosen == _last_failover_uplink:
         return
@@ -834,13 +841,6 @@ def apply_uplink_failover(cfg):
     for idx, iface in enumerate(priority):
         if is_iface_up(iface):
             set_default_route_metric(iface, base_metric if iface == chosen else base_metric + 500 + idx)
-
-    if cfg.get("uplink_interface") != chosen:
-        cfg["uplink_interface"] = chosen
-        save_config(cfg)
-        if hostapd_active():
-            apply_uplink_routing(cfg)
-            apply_leak_protection(cfg)
 
     reconnect_active_manual_tunnel()
 
@@ -1190,7 +1190,6 @@ def vpn_kill_switch_watcher():
         try:
             cfg = load_config()
             apply_uplink_failover(cfg)
-            cfg = load_config()  # re-read: apply_uplink_failover may have just saved uplink_interface
             if cfg.get("vpn_kill_switch", False) and hostapd_active():
                 # only reapply when the tunnel actually changed state, same
                 # reasoning as reconcile_routing_rules below - unconditional

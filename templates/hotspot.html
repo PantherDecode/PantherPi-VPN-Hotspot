@@ -52,7 +52,7 @@
       <label>AUTO FAILOVER</label>
       <label class="switch">
         <input type="checkbox" name="uplink_auto_failover" id="uplink-auto-failover" {{ 'checked' if cfg.uplink_auto_failover else '' }}>
-        <span>Automatically prefer eth0 when it's up, fall back to wlan0 if it drops, and switch back when eth0 returns - overrides the manual dropdown above, including reconnecting the active VPN tunnel so it re-homes onto the new path</span>
+        <span>Keeps the Pi's own physical connection (used to actually dial out to your VPN/Proxy) on the best available interface, reconnecting the tunnel if needed - this never changes the UPLINK INTERFACE above, which stays tunnel-only</span>
       </label>
     </div>
     <div class="field-row">
