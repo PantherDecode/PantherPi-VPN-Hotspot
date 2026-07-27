@@ -639,6 +639,38 @@ def api_wifi_disconnect():
     return jsonify({"ok": code == 0, "output": out or err})
 
 
+@app.route("/api/wifi/saved")
+def api_wifi_saved():
+    if not is_logged_in():
+        return jsonify({"error": "unauthorized"}), 401
+    code, out, _ = run(["nmcli", "-t", "-f", "NAME,TYPE", "connection", "show"])
+    saved = []
+    for line in out.splitlines():
+        parts = line.split(":")
+        if len(parts) < 2 or parts[1] != "802-11-wireless":
+            continue
+        name = parts[0]
+        _, ssid_out, _ = run(["nmcli", "-g", "802-11-wireless.ssid", "connection", "show", name])
+        _, pw_out, _ = run(["sudo", "nmcli", "-s", "-g", "802-11-wireless-security.psk", "connection", "show", name])
+        saved.append({
+            "name": name,
+            "ssid": ssid_out.strip() or name,
+            "password": pw_out.strip(),
+        })
+    return jsonify({"saved": saved})
+
+
+@app.route("/api/wifi/forget", methods=["POST"])
+def api_wifi_forget():
+    if not is_logged_in():
+        return jsonify({"error": "unauthorized"}), 401
+    name = (request.json or {}).get("name", "").strip()
+    if not name:
+        return jsonify({"ok": False, "error": "name required"}), 400
+    code, out, err = run(["sudo", "nmcli", "connection", "delete", name])
+    return jsonify({"ok": code == 0, "output": out or err})
+
+
 @app.route("/hotspot")
 def hotspot():
     r = require_login()

@@ -12,6 +12,7 @@
       {% for i in interfaces %}<option value="{{ i }}">{{ i }}</option>{% endfor %}
     </select>
     <button id="scan-btn" class="btn-primary">⟳ SCAN</button>
+    <button id="saved-btn" class="btn-ghost">SAVED NETWORKS</button>
   </div>
   <div id="scan-status" class="hint"></div>
 </section>
@@ -19,6 +20,16 @@
 <section class="panel">
   <h2>NEARBY NETWORKS</h2>
   <div id="network-grid" class="network-grid"></div>
+</section>
+
+<section class="panel hidden" id="saved-panel">
+  <h2>SAVED NETWORKS</h2>
+  <div class="hint">Every network this Pi has ever connected to, with its saved password. Forgetting one permanently deletes it - it won't auto-reconnect to that network again.</div>
+  <table class="data-table" id="saved-table">
+    <thead><tr><th>SSID</th><th>PASSWORD</th><th></th></tr></thead>
+    <tbody></tbody>
+  </table>
+  <div class="empty-state" id="saved-empty" style="display:none;">No saved networks</div>
 </section>
 
 <div id="connect-modal" class="modal-overlay hidden">
@@ -104,7 +115,56 @@ async function doConnect() {
   if (data.ok) setTimeout(() => { closeModal(); scan(); }, 1200);
 }
 
+async function toggleSaved() {
+  const panel = document.getElementById('saved-panel');
+  if (!panel.classList.contains('hidden')) {
+    panel.classList.add('hidden');
+    return;
+  }
+  panel.classList.remove('hidden');
+  const tbody = document.querySelector('#saved-table tbody');
+  const empty = document.getElementById('saved-empty');
+  tbody.innerHTML = '';
+  empty.style.display = 'none';
+  const res = await fetch('/api/wifi/saved');
+  const data = await res.json();
+  if (!data.saved.length) {
+    empty.style.display = '';
+    return;
+  }
+  data.saved.forEach(n => {
+    const escapedName = n.name.replace(/'/g, "\\'");
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td>${n.ssid}</td>
+      <td>
+        <span class="saved-pw" data-pw="${n.password.replace(/"/g, '&quot;')}">${n.password ? '••••••••' : '(open network)'}</span>
+        ${n.password ? '<button class="btn-ghost btn-sm" onclick="toggleSavedPw(this)">SHOW</button>' : ''}
+      </td>
+      <td><button class="btn-danger btn-sm" onclick="forgetNetwork('${escapedName}')">FORGET</button></td>`;
+    tbody.appendChild(tr);
+  });
+}
+
+function toggleSavedPw(btn) {
+  const span = btn.previousElementSibling;
+  const showing = btn.textContent === 'HIDE';
+  span.textContent = showing ? '••••••••' : span.dataset.pw;
+  btn.textContent = showing ? 'SHOW' : 'HIDE';
+}
+
+async function forgetNetwork(name) {
+  if (!confirm(`Permanently forget "${name}"? This can't be undone - you'll need to re-enter the password to reconnect.`)) return;
+  await fetch('/api/wifi/forget', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({name})
+  });
+  toggleSaved();
+  toggleSaved();
+}
+
 document.getElementById('scan-btn').addEventListener('click', scan);
+document.getElementById('saved-btn').addEventListener('click', toggleSaved);
 if (document.getElementById('iface-select').options.length) scan();
 </script>
 {% endblock %}
