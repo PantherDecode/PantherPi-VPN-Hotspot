@@ -41,6 +41,13 @@
         {% endfor %}
       </select>
     </div>
+    {% if not uplink_choices %}
+    <div class="login-error">
+      No VPN/Proxy tunnel is active - only tunnel interfaces (not plain eth0/wlan0/etc) can be
+      selected as the hotspot's internet source. Connect a VPN or Proxy first, then it'll appear
+      here.
+    </div>
+    {% endif %}
     <div class="field-row">
       <label>AUTO FAILOVER</label>
       <label class="switch">

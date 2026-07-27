@@ -646,7 +646,13 @@ def hotspot():
         return r
     cfg = load_config()
     all_ifaces = [i["name"] for i in get_interfaces()]
-    uplink_choices = [i for i in all_ifaces if i != cfg["ap_interface"]]
+    # only VPN/Proxy tunnel interfaces are offered as an uplink - plain
+    # physical interfaces (eth0/wlan0/etc) are never shown here, so the UI
+    # can't be used to route hotspot traffic directly through an
+    # unencrypted connection. The VPN kill switch already enforces this at
+    # the firewall level; this keeps the config itself from ever pointing
+    # at one in the first place.
+    uplink_choices = [i for i in all_ifaces if i != cfg["ap_interface"] and is_tunnel_interface(i)]
     return render_template(
         "hotspot.html",
         app_name=APP_NAME,
