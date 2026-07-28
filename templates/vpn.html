@@ -65,7 +65,7 @@
     <button class="btn-primary" onclick="vpnConnect()">CONNECT</button>
   </div>
   <div id="vpn-connect-status" class="hint"></div>
-  <button class="btn-ghost btn-sm" style="margin-top:10px;" onclick="checkNordRawStatus()">CHECK STATUS (nordvpn status)</button>
+  <button class="btn-ghost btn-sm" style="margin-top:10px;" onclick="checkNordRawStatus()">CHECK STATUS (status + settings)</button>
   <pre id="vpn-raw-status" class="hint" style="display:none; white-space:pre-wrap; margin-top:8px; background:#061019; border:1px solid var(--border); border-radius:6px; padding:10px;"></pre>
 </section>
 
@@ -379,7 +379,7 @@ async function loadNordCountries() {
 async function checkNordRawStatus() {
   const pre = document.getElementById('vpn-raw-status');
   pre.style.display = 'block';
-  pre.textContent = 'Running nordvpn status...';
+  pre.textContent = 'Running nordvpn status && nordvpn settings...';
   const res = await fetch('/api/vpn/raw_status');
   const data = await res.json();
   pre.textContent = data.output || '(no output)';

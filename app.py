@@ -1896,8 +1896,10 @@ def api_vpn_countries():
 def api_vpn_raw_status():
     if not is_logged_in():
         return jsonify({"error": "unauthorized"}), 401
-    code, out, err = run(["sudo", "nordvpn", "status"], timeout=15)
-    return jsonify({"ok": code == 0, "output": out or err})
+    code1, out1, err1 = run(["sudo", "nordvpn", "status"], timeout=15)
+    code2, out2, err2 = run(["sudo", "nordvpn", "settings"], timeout=15)
+    output = f"$ nordvpn status\n{out1 or err1}\n\n$ nordvpn settings\n{out2 or err2}"
+    return jsonify({"ok": code1 == 0 and code2 == 0, "output": output})
 
 
 @app.route("/api/vpn/connect", methods=["POST"])
