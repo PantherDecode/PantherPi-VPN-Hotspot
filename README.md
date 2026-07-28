@@ -142,6 +142,14 @@ Optionally keeps your saved config (`/etc/pantherpi`) for a future reinstall.
 - The default admin login is `admin` / `admin`. Change it immediately after install.
 - The captive portal, once enabled, gates the *entire* hotspot subnet — including this admin GUI
   if you access it from a device connected to the hotspot itself.
+- **If you use NordVPN's native app as your uplink, turn NordVPN's own Firewall off**
+  (`sudo nordvpn set firewall off`) — its own firewall (separate from PantherPi's kill switch,
+  implemented via its own `nftables` table) silently drops fresh `DHCPDISCOVER` requests from new
+  hotspot clients, since those use source `0.0.0.0` which never matches its LAN-discovery
+  allowlist (only already-assigned IPs do). Symptom: a device associates with the hotspot's WiFi
+  fine but never gets an IP, and gives up after ~15-20s with a generic "connection failed."
+  PantherPi's own VPN kill switch already provides equivalent protection without this bug, so
+  NordVPN's own firewall is redundant here anyway.
 
 ## Project layout
 
