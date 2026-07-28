@@ -86,6 +86,9 @@
     <button class="btn-ghost" onclick="loadOvpnServers()">⟳ REFRESH LIST</button>
     <button class="btn-ghost" onclick="updateOvpnServers()" id="ovpn-update-btn">⬇ UPDATE SERVER PACKAGE</button>
   </div>
+  <div class="progress-track hidden" id="ovpn-update-progress-track">
+    <div class="progress-fill" id="ovpn-update-progress-fill" style="width:0%;"></div>
+  </div>
   <div id="ovpn-connect-status" class="hint"></div>
 </section>
 
@@ -444,18 +447,51 @@ async function saveOvpnCredentials() {
   loadOvpnServers();
 }
 
+function formatMB(bytes) {
+  return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+}
+
 async function updateOvpnServers() {
   const btn = document.getElementById('ovpn-update-btn');
   const status = document.getElementById('ovpn-connect-status');
+  const track = document.getElementById('ovpn-update-progress-track');
+  const fill = document.getElementById('ovpn-update-progress-fill');
   btn.disabled = true;
   btn.textContent = 'UPDATING...';
-  status.textContent = 'Downloading latest server package (may take a moment)...';
-  const res = await fetch('/api/vpn/openvpn/update', {method: 'POST'});
-  const data = await res.json();
-  status.textContent = data.ok ? `Updated - ${data.count} servers available.` : 'Update failed: ' + (data.output || '');
-  btn.disabled = false;
-  btn.textContent = '⬇ UPDATE SERVER PACKAGE';
-  loadOvpnServers();
+  track.classList.remove('hidden');
+  fill.style.width = '0%';
+  status.textContent = 'Starting download...';
+
+  const startRes = await fetch('/api/vpn/openvpn/update', {method: 'POST'});
+  const startData = await startRes.json();
+  if (!startData.ok) {
+    status.textContent = 'Failed to start update.';
+    btn.disabled = false;
+    btn.textContent = '⬇ UPDATE SERVER PACKAGE';
+    track.classList.add('hidden');
+    return;
+  }
+
+  const poll = setInterval(async () => {
+    const res = await fetch('/api/vpn/openvpn/update/status');
+    const data = await res.json();
+    if (data.total > 0) {
+      const pct = Math.min(100, Math.round((data.downloaded / data.total) * 100));
+      fill.style.width = pct + '%';
+      status.textContent = `Downloading... ${formatMB(data.downloaded)} / ${formatMB(data.total)} (${pct}%)`;
+    } else {
+      status.textContent = `Downloading... ${formatMB(data.downloaded)}`;
+    }
+    if (data.done) {
+      clearInterval(poll);
+      fill.style.width = '100%';
+      status.textContent = data.ok ? `Updated - ${data.count} servers available.` : ('Update failed: ' + (data.error || 'unknown error'));
+      btn.disabled = false;
+      btn.textContent = '⬇ UPDATE SERVER PACKAGE';
+      setTimeout(() => track.classList.add('hidden'), 1500);
+      loadOvpnServers();
+    }
+  }, 1000);
 }
 
 async function switchOvpnCountry() {

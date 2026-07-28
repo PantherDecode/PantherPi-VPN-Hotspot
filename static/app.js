@@ -3,6 +3,28 @@ document.addEventListener('DOMContentLoaded', () => {
   console.log('PantherPi UI online');
   pollNavLiveStates();
   setInterval(pollNavLiveStates, 6000);
+
+  const menuBtn = document.getElementById('mobile-menu-btn');
+  const overlay = document.getElementById('sidebar-overlay');
+  const sidebar = document.querySelector('.sidebar');
+  function toggleSidebar() {
+    sidebar.classList.toggle('open');
+    overlay.classList.toggle('open');
+  }
+  function closeSidebar() {
+    sidebar.classList.remove('open');
+    overlay.classList.remove('open');
+  }
+  if (menuBtn && overlay && sidebar) {
+    // click covers desktop + most mobile browsers; touchend is a fallback
+    // for mobile browsers where a fixed-position button's click event can
+    // be unreliable/delayed - preventDefault stops it from also firing a
+    // trailing click and double-toggling
+    menuBtn.addEventListener('click', toggleSidebar);
+    menuBtn.addEventListener('touchend', (e) => { e.preventDefault(); toggleSidebar(); });
+    overlay.addEventListener('click', closeSidebar);
+    overlay.addEventListener('touchend', (e) => { e.preventDefault(); closeSidebar(); });
+  }
 });
 
 function setNavLive(href, active) {

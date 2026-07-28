@@ -2073,18 +2073,66 @@ def api_ovpn_credentials():
     return jsonify({"ok": True})
 
 
+_ovpn_update_state = {"running": False, "downloaded": 0, "total": 0, "done": False, "ok": None, "error": None}
+
+
+def _run_ovpn_update():
+    global _ovpn_update_state
+    tmp_path = "/tmp/ovpn_update.zip"
+    try:
+        run(["sudo", "systemctl", "stop", OVPN_UNIT])
+        run(["sudo", "mkdir", "-p", OVPN_DIR])
+        _, head_out, _ = run(["curl", "-sI", "--max-time", "15", OVPN_ARCHIVE_URL])
+        m = re.search(r"(?i)content-length:\s*(\d+)", head_out)
+        if m:
+            _ovpn_update_state["total"] = int(m.group(1))
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
+        # --speed-time/--speed-limit: abort if throughput drops under
+        # 512 B/s for a sustained 30s - distinguishes a genuinely-dead
+        # stalled connection (which used to hang for the full timeout,
+        # freezing this whole update) from a real transfer that's just slow
+        proc = subprocess.Popen([
+            "curl", "-s", "--speed-time", "30", "--speed-limit", "512",
+            "--retry", "2", "--retry-delay", "3", "-o", tmp_path, OVPN_ARCHIVE_URL,
+        ])
+        while proc.poll() is None:
+            time.sleep(1)
+            if os.path.exists(tmp_path):
+                _ovpn_update_state["downloaded"] = os.path.getsize(tmp_path)
+        if proc.returncode != 0:
+            _ovpn_update_state.update({"running": False, "done": True, "ok": False,
+                                        "error": "Download failed or stalled - check your internet connection."})
+            return
+        code, out, err = run(["sudo", "bash", "-c",
+            f"unzip -oq {tmp_path} -d /etc/openvpn/nordvpn/configs/ && rm -f {tmp_path}"], timeout=60)
+        _ovpn_update_state.update({"running": False, "done": True, "ok": code == 0,
+                                    "error": None if code == 0 else (out or err)})
+    except Exception as e:
+        _ovpn_update_state.update({"running": False, "done": True, "ok": False, "error": str(e)})
+
+
 @app.route("/api/vpn/openvpn/update", methods=["POST"])
 def api_ovpn_update():
     if not is_logged_in():
         return jsonify({"error": "unauthorized"}), 401
-    run(["sudo", "systemctl", "stop", OVPN_UNIT])
-    run(["sudo", "mkdir", "-p", OVPN_DIR])
-    code, out, err = run(["bash", "-c",
-        f"curl -s -o /tmp/ovpn_update.zip {OVPN_ARCHIVE_URL} && "
-        f"sudo unzip -oq /tmp/ovpn_update.zip -d /etc/openvpn/nordvpn/configs/ && "
-        f"rm -f /tmp/ovpn_update.zip"], timeout=120)
-    servers = ovpn_server_list()
-    return jsonify({"ok": code == 0, "count": sum(s["count"] for s in servers), "output": out or err})
+    global _ovpn_update_state
+    if _ovpn_update_state["running"]:
+        return jsonify({"ok": True, "already_running": True})
+    _ovpn_update_state = {"running": True, "downloaded": 0, "total": 0, "done": False, "ok": None, "error": None}
+    threading.Thread(target=_run_ovpn_update, daemon=True).start()
+    return jsonify({"ok": True, "started": True})
+
+
+@app.route("/api/vpn/openvpn/update/status")
+def api_ovpn_update_status():
+    if not is_logged_in():
+        return jsonify({"error": "unauthorized"}), 401
+    state = dict(_ovpn_update_state)
+    if state["done"] and state["ok"]:
+        servers = ovpn_server_list()
+        state["count"] = sum(s["count"] for s in servers)
+    return jsonify(state)
 
 
 @app.route("/api/vpn/openvpn/connect", methods=["POST"])
@@ -2727,4 +2775,8 @@ threading.Thread(target=vpn_kill_switch_watcher, daemon=True).start()
 
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=80, debug=False)
+    # threaded=True is essential - without it Flask's dev server handles one
+    # request at a time, so any single slow/blocking request (e.g. the VPN
+    # server-package download) freezes the ENTIRE web UI for every user
+    # until it finishes.
+    app.run(host="0.0.0.0", port=80, debug=False, threaded=True)
