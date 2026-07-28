@@ -37,6 +37,12 @@ apt-get install -y \
   network-manager openvpn wireguard wireguard-tools avahi-daemon >/dev/null
 
 echo "[2/8] Disabling default auto-start of hostapd/dnsmasq (PantherPi controls them directly)..."
+# Raspberry Pi OS Desktop images (unlike Lite) ship hostapd masked by
+# default, since NetworkManager wants to own WiFi AP mode itself - a masked
+# unit silently refuses every future "systemctl start", with zero log
+# output, which looks exactly like a mysteriously-not-starting hotspot.
+# Unmask first so PantherPi's own start/stop control actually works.
+systemctl unmask hostapd dnsmasq 2>/dev/null || true
 systemctl stop hostapd dnsmasq 2>/dev/null || true
 systemctl disable hostapd dnsmasq 2>/dev/null || true
 
