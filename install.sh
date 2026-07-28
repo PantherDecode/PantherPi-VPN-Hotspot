@@ -19,7 +19,7 @@ echo " PantherPi Installer"
 echo "===================================="
 
 if [ -z "$SCRIPT_DIR" ] || [ ! -f "$SCRIPT_DIR/app.py" ]; then
-  echo "[0/7] Running standalone (piped via curl) - fetching source from GitHub..."
+  echo "[0/8] Running standalone (piped via curl) - fetching source from GitHub..."
   export DEBIAN_FRONTEND=noninteractive
   apt-get update -qq
   apt-get install -y git >/dev/null
@@ -29,18 +29,18 @@ if [ -z "$SCRIPT_DIR" ] || [ ! -f "$SCRIPT_DIR/app.py" ]; then
   SCRIPT_DIR="$CLONE_DIR"
 fi
 
-echo "[1/7] Installing dependencies..."
+echo "[1/8] Installing dependencies..."
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
 apt-get install -y \
   sudo python3-flask hostapd dnsmasq dnsmasq-utils iptables iw curl unzip \
-  network-manager openvpn wireguard wireguard-tools >/dev/null
+  network-manager openvpn wireguard wireguard-tools avahi-daemon >/dev/null
 
-echo "[2/7] Disabling default auto-start of hostapd/dnsmasq (PantherPi controls them directly)..."
+echo "[2/8] Disabling default auto-start of hostapd/dnsmasq (PantherPi controls them directly)..."
 systemctl stop hostapd dnsmasq 2>/dev/null || true
 systemctl disable hostapd dnsmasq 2>/dev/null || true
 
-echo "[3/7] Fixing NetworkManager DNS handling (prevents /etc/resolv.conf from being"
+echo "[3/8] Fixing NetworkManager DNS handling (prevents /etc/resolv.conf from being"
 echo "      emptied when a WiFi radio goes dormant, which breaks DNS for hotspot clients too)..."
 mkdir -p /etc/NetworkManager/conf.d
 cat > /etc/NetworkManager/conf.d/pantherpi-dns.conf <<'EOF'
@@ -55,20 +55,29 @@ EOF
 fi
 systemctl restart NetworkManager 2>/dev/null || true
 
-echo "[4/7] Installing PantherPi to /opt/pantherpi..."
+echo "[4/8] Setting hostname to pantherpi (reachable at http://pantherpi.local/ via mDNS)..."
+hostnamectl set-hostname pantherpi
+if grep -q '^127\.0\.1\.1' /etc/hosts; then
+  sed -i 's/^127\.0\.1\.1.*/127.0.1.1\tpantherpi/' /etc/hosts
+else
+  echo -e "127.0.1.1\tpantherpi" >> /etc/hosts
+fi
+systemctl restart avahi-daemon 2>/dev/null || true
+
+echo "[5/8] Installing PantherPi to /opt/pantherpi..."
 rm -rf /opt/pantherpi
 mkdir -p /opt/pantherpi
 cp -r "$SCRIPT_DIR/app.py" "$SCRIPT_DIR/templates" "$SCRIPT_DIR/static" /opt/pantherpi/
 
-echo "[5/7] Setting up config directory (/etc/pantherpi)..."
+echo "[6/8] Setting up config directory (/etc/pantherpi)..."
 mkdir -p /etc/pantherpi
 
-echo "[6/7] Installing systemd service..."
+echo "[7/8] Installing systemd service..."
 cp "$SCRIPT_DIR/pantherpi.service" /etc/systemd/system/pantherpi.service
 systemctl daemon-reload
 systemctl enable pantherpi >/dev/null
 
-echo "[7/7] Starting PantherPi..."
+echo "[8/8] Starting PantherPi..."
 systemctl restart pantherpi
 sleep 2
 
@@ -78,7 +87,7 @@ if systemctl is-active --quiet pantherpi; then
   echo "===================================="
   echo " PantherPi is running!"
   echo "===================================="
-  echo " Open:     http://$IP/"
+  echo " Open:     http://$IP/  (or http://pantherpi.local/ on the same network)"
   echo " Login:    admin / admin"
   echo ""
   echo " IMPORTANT: change the default password now,"

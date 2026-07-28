@@ -19,7 +19,10 @@ curl -sSL https://raw.githubusercontent.com/PantherDecode/PantherPi-VPN-Hotspot/
 ```
 
 This fetches the source, installs every dependency, and starts PantherPi as a systemd service in
-under two minutes on a Pi 4/5. Then open `http://<pi-ip>/` in a browser.
+under two minutes on a Pi 4/5. Then open `http://<pi-ip>/` in a browser — or just
+`http://pantherpi.local/`, since the installer sets the hostname and enables mDNS so you don't
+have to go hunting for the IP (works from any device on the same network that supports `.local`
+resolution - Windows, macOS, iOS, and Linux all do; some Android versions are inconsistent).
 
 **Default login:** `admin` / `admin` — change it immediately under **Settings**.
 
