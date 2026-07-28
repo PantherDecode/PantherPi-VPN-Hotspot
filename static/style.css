@@ -396,10 +396,12 @@ select option { background: #0a1622; color: var(--text); }
     font-size: 18px; cursor: pointer; box-shadow: 0 0 12px rgba(41,242,255,0.35);
     pointer-events: auto; touch-action: manipulation;
   }
-  .sidebar-overlay.open {
-    display: block; position: fixed; inset: 0; z-index: 9000;
-    background: rgba(2,6,12,0.6);
-  }
+  /* dimming overlay intentionally removed on mobile - it sat behind the
+     menu button (lower z-index) so it was never the actual click blocker,
+     but it added a full-screen layer for no real benefit once click-to-
+     close-outside wasn't needed; the hamburger button alone opens/closes
+     the sidebar now. */
+  .sidebar-overlay { display: none !important; }
   .shell { flex-direction: column; }
   .sidebar {
     position: fixed; top: 0; left: 0; bottom: 0; z-index: 9500;
