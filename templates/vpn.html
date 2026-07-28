@@ -2,8 +2,22 @@
 {% block content %}
 <header class="page-head">
   <h1>VPN</h1>
-  <div class="page-head-sub">NordVPN &amp; ProtonVPN connection control</div>
+  <div class="page-head-sub">NordVPN, ProtonVPN &amp; WireGuard connection control</div>
 </header>
+
+<div class="vpn-tabs">
+  <button class="vpn-tab active" id="vpn-tab-nord" data-tab="nord" onclick="switchVpnTab('nord')">
+    <span class="vpn-tab-dot"></span>NORDVPN
+  </button>
+  <button class="vpn-tab" id="vpn-tab-proton" data-tab="proton" onclick="switchVpnTab('proton')">
+    <span class="vpn-tab-dot"></span>PROTONVPN
+  </button>
+  <button class="vpn-tab" id="vpn-tab-wg" data-tab="wg" onclick="switchVpnTab('wg')">
+    <span class="vpn-tab-dot"></span>WIREGUARD
+  </button>
+</div>
+
+<div class="vpn-tab-group" id="vpn-tab-group-nord">
 
 <section class="panel" id="nordvpn-panel">
   <h2>NORDVPN</h2>
@@ -91,6 +105,10 @@
   </div>
   <div id="ovpn-connect-status" class="hint"></div>
 </section>
+
+</div>
+
+<div class="vpn-tab-group" id="vpn-tab-group-proton" style="display:none;">
 
 <section class="panel" id="proton-panel">
   <h2>PROTONVPN</h2>
@@ -182,6 +200,10 @@
   <div id="proton-ovpn-connect-status" class="hint"></div>
 </section>
 
+</div>
+
+<div class="vpn-tab-group" id="vpn-tab-group-wg" style="display:none;">
+
 <section class="panel" id="wg-panel">
   <h2>WIREGUARD</h2>
   <div class="hint">
@@ -230,20 +252,36 @@
   </div>
   <div id="wg-connect-status" class="hint"></div>
 </section>
+
+</div>
 {% endblock %}
 
 {% block scripts %}
 <script>
 const vpnConnStatus = { 'nordvpn-panel': false, 'ovpn-panel': false, 'proton-panel': false, 'proton-ovpn-panel': false, 'wg-panel': false };
+const vpnTabGroups = { nord: ['nordvpn-panel', 'ovpn-panel'], proton: ['proton-panel', 'proton-ovpn-panel'], wg: ['wg-panel'] };
+let activeVpnTab = null;
+
+function switchVpnTab(tab) {
+  activeVpnTab = tab;
+  Object.keys(vpnTabGroups).forEach(t => {
+    document.getElementById('vpn-tab-group-' + t).style.display = (t === tab) ? '' : 'none';
+    document.getElementById('vpn-tab-' + t).classList.toggle('active', t === tab);
+  });
+}
 
 function reorderVpnPanels() {
-  const container = document.querySelector('main.content');
-  const order = ['nordvpn-panel', 'ovpn-panel', 'proton-panel', 'proton-ovpn-panel', 'wg-panel'];
-  const connectedFirst = order.filter(id => vpnConnStatus[id]).concat(order.filter(id => !vpnConnStatus[id]));
-  connectedFirst.forEach(id => {
-    const el = document.getElementById(id);
-    if (el) container.appendChild(el);
+  Object.entries(vpnTabGroups).forEach(([tab, panelIds]) => {
+    const connected = panelIds.some(id => vpnConnStatus[id]);
+    document.getElementById('vpn-tab-' + tab).classList.toggle('connected', connected);
   });
+  // pick a sane default tab exactly once, after the first real status
+  // comes back - prefer whichever provider is already connected, so
+  // opening the page shows you what's actually protecting you
+  if (activeVpnTab === null) {
+    const connectedTab = Object.keys(vpnTabGroups).find(tab => vpnTabGroups[tab].some(id => vpnConnStatus[id]));
+    switchVpnTab(connectedTab || 'nord');
+  }
 }
 
 async function refreshVpn() {
