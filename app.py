@@ -1848,6 +1848,22 @@ def nordvpn_status():
     return status
 
 
+def nordvpn_countries():
+    code, out, _ = run(["nordvpn", "countries"], timeout=15)
+    if code != 0:
+        return []
+    names = set()
+    for line in out.splitlines():
+        line = line.strip()
+        if not line or line.startswith("-"):
+            continue
+        for part in re.split(r"\s{2,}|\t|,", line):
+            part = part.strip()
+            if part:
+                names.add(part)
+    return sorted(names)
+
+
 @app.route("/vpn")
 def vpn():
     r = require_login()
@@ -1867,6 +1883,21 @@ def api_vpn_status():
         return jsonify({"installed": True, "logged_in": False})
     status = nordvpn_status()
     return jsonify({"installed": True, "logged_in": True, **status})
+
+
+@app.route("/api/vpn/countries")
+def api_vpn_countries():
+    if not is_logged_in():
+        return jsonify({"error": "unauthorized"}), 401
+    return jsonify({"countries": nordvpn_countries()})
+
+
+@app.route("/api/vpn/raw_status")
+def api_vpn_raw_status():
+    if not is_logged_in():
+        return jsonify({"error": "unauthorized"}), 401
+    code, out, err = run(["sudo", "nordvpn", "status"], timeout=15)
+    return jsonify({"ok": code == 0, "output": out or err})
 
 
 @app.route("/api/vpn/connect", methods=["POST"])

@@ -20,7 +20,8 @@
 <div class="vpn-tab-group" id="vpn-tab-group-nord">
 
 <section class="panel" id="nordvpn-panel">
-  <h2>NORDVPN</h2>
+  <h2>NORDVPN <span class="badge">WireGuard / NordLynx</span></h2>
+  <div class="hint">Uses NordVPN's native CLI and its NordLynx protocol (WireGuard-based) - the fastest option, but ties you to NordVPN's own client and its settings (like LAN discovery).</div>
   <div class="hotspot-status">
     <div class="status-ring" id="vpn-ring"><div class="status-ring-icon">◎</div></div>
     <div>
@@ -59,11 +60,13 @@
     </div>
   </div>
   <div class="field-row" style="margin-top:14px;">
-    <label>COUNTRY / GROUP</label>
-    <input type="text" id="vpn-country" placeholder="e.g. United_States, or leave blank for fastest">
+    <label>COUNTRY</label>
+    <select id="vpn-country"><option value="">Fastest (auto)</option></select>
     <button class="btn-primary" onclick="vpnConnect()">CONNECT</button>
   </div>
   <div id="vpn-connect-status" class="hint"></div>
+  <button class="btn-ghost btn-sm" style="margin-top:10px;" onclick="checkNordRawStatus()">CHECK STATUS (nordvpn status)</button>
+  <pre id="vpn-raw-status" class="hint" style="display:none; white-space:pre-wrap; margin-top:8px; background:#061019; border:1px solid var(--border); border-radius:6px; padding:10px;"></pre>
 </section>
 
 <section class="panel" id="ovpn-panel">
@@ -355,6 +358,31 @@ async function vpnConnect() {
   const data = await res.json();
   status.textContent = data.output || (data.ok ? 'Connected' : 'Failed');
   refreshVpn();
+}
+
+let nordCountriesLoaded = false;
+async function loadNordCountries() {
+  const select = document.getElementById('vpn-country');
+  try {
+    const res = await fetch('/api/vpn/countries');
+    const data = await res.json();
+    (data.countries || []).forEach(name => {
+      const opt = document.createElement('option');
+      opt.value = name;
+      opt.textContent = name.replace(/_/g, ' ');
+      select.appendChild(opt);
+    });
+    nordCountriesLoaded = true;
+  } catch (e) { console.error(e); }
+}
+
+async function checkNordRawStatus() {
+  const pre = document.getElementById('vpn-raw-status');
+  pre.style.display = 'block';
+  pre.textContent = 'Running nordvpn status...';
+  const res = await fetch('/api/vpn/raw_status');
+  const data = await res.json();
+  pre.textContent = data.output || '(no output)';
 }
 
 document.getElementById('vpn-toggle-btn').addEventListener('click', async () => {
@@ -928,6 +956,7 @@ document.getElementById('wg-toggle-btn').addEventListener('click', async () => {
 });
 
 refreshVpn();
+loadNordCountries();
 refreshProton();
 refreshProtonOvpn();
 refreshWg();
