@@ -16,14 +16,13 @@ document.addEventListener('DOMContentLoaded', () => {
     overlay.classList.remove('open');
   }
   if (menuBtn && overlay && sidebar) {
-    // click covers desktop + most mobile browsers; touchend is a fallback
-    // for mobile browsers where a fixed-position button's click event can
-    // be unreliable/delayed - preventDefault stops it from also firing a
-    // trailing click and double-toggling
+    // click alone is reliable for real <button> elements on mobile taps -
+    // a prior version also bound touchend "as a fallback", but touchend
+    // AND the synthesized click it triggers both fired, toggling the
+    // sidebar open then immediately closed again in the same tap. Net
+    // visible effect: looked like the button did nothing at all.
     menuBtn.addEventListener('click', toggleSidebar);
-    menuBtn.addEventListener('touchend', (e) => { e.preventDefault(); toggleSidebar(); });
     overlay.addEventListener('click', closeSidebar);
-    overlay.addEventListener('touchend', (e) => { e.preventDefault(); closeSidebar(); });
   }
 });
 
